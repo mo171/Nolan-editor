@@ -23,3 +23,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Sidebar should be `surface_container_low` with a 1px gap from the Topbar.
 - Active states & primary FABs should use the purple-to-blue gradient. Input fields should be understated using ghost borders.
 <!-- END:nolan-design-rules -->
+
+<!-- BEGIN:nolan-ecosystem-rules -->
+# Tech Stack & Tooling Guidelines
+
+- **Package Manager:** We use `pnpm` exclusively. Do not use `npm` or `yarn`. 
+- **Components:** We are using **Shadcn UI** components. You must prioritize using existing Shadcn components (from `@/components/ui`) and adding new ones via `npx shadcn@latest add <component>` running via `pnpm dlx shadcn@latest add <component>`.
+- Always style and customize Shadcn components with the colors defined in our "Nolan A.I Studio" Ethereal Manuscript theme above.
+<!-- END:nolan-ecosystem-rules -->
