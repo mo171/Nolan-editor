@@ -222,26 +222,10 @@ export function EditorFormatToolbar({ editor }) {
         className="border-white/10 text-white/50 hover:border-primary/40 hover:text-primary/80 bg-white/3"
       />
       <SpecialButton
-        label="Call"
-        className="border-white/10 text-white/50 hover:border-[#69daff]/40 hover:text-[#69daff]/80 bg-white/3"
-      />
-      <SpecialButton
-        label="Match Style"
-        className="border-white/10 text-white/50 hover:border-white/20 hover:text-white/70 bg-white/3"
-      />
-      <SpecialButton
         label="Translate"
         className="border-white/10 text-white/50 hover:border-white/20 hover:text-white/70 bg-white/3 flex items-center gap-1"
         onClick={() => {}}
       />
-
-      <Divider />
-
-      {/* LIVE indicator */}
-      <div className="flex items-center gap-1.5 ml-1 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-        <span className="text-xs font-semibold text-emerald-400">LIVE</span>
-      </div>
     </div>
   );
 }

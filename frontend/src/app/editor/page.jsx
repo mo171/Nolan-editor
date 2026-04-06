@@ -9,6 +9,7 @@ import { EditorSidebar } from "@/features/editor/components/editor-sidebar";
 import { TiptapEditor } from "@/features/editor/components/tiptap-editor";
 import { EditorStudioPanel } from "@/features/editor/components/editor-studio-panel";
 import { EditorAiBar } from "@/features/editor/components/editor-ai-bar";
+import { BeatSheet } from "@/features/editor/components/beat-sheet";
 
 function SidebarToggle({ side }) {
   const { sidebarOpen, setSidebarOpen, studioPanelOpen, setStudioPanelOpen } = useEditorContext();
@@ -34,7 +35,7 @@ function SidebarToggle({ side }) {
 }
 
 function EditorLayout() {
-  const { sidebarOpen, studioPanelOpen } = useEditorContext();
+  const { sidebarOpen, studioPanelOpen, activeMode } = useEditorContext();
   const [tiptapEditor, setTiptapEditor] = useState(null);
 
   const handleEditorReady = useCallback((editor) => {
@@ -54,10 +55,32 @@ function EditorLayout() {
           <SidebarToggle side="left" />
         </div>
 
-        {/* Center Editor */}
+        {/* Center Editor Area */}
         <main className="flex-1 flex flex-col overflow-hidden min-w-0 relative">
-          <TiptapEditor onEditorReady={handleEditorReady} />
-          <EditorAiBar />
+          <AnimatePresence mode="wait">
+            {activeMode === "Planning" ? (
+              <motion.div
+                key="beat-sheet"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="flex-1 flex flex-col min-h-0"
+              >
+                <BeatSheet />
+              </motion.div>
+            ) : (
+              <motion.div
+                key="tiptap"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                className="flex-1 flex flex-col min-h-0"
+              >
+                <TiptapEditor onEditorReady={handleEditorReady} />
+                <EditorAiBar />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </main>
 
         {/* Right Studio Panel */}

@@ -23,7 +23,7 @@ function SceneItem({ scene, chapter, isActive }) {
 
   return (
     <div
-      className={`group relative flex items-center gap-2 pl-8 pr-2 py-1.5 rounded-lg cursor-pointer transition-all duration-150 ${
+      className={`group relative flex items-center gap-2 pl-8 pr-2 py-2.5 rounded-xl cursor-pointer transition-all duration-150 ${
         isActive
           ? "bg-[#69daff]/15 text-[#69daff]"
           : "text-white/50 hover:text-white/80 hover:bg-white/5"
@@ -80,7 +80,7 @@ function ChapterItem({ chapter }) {
     <div className="mb-1">
       {/* Chapter Header */}
       <div
-        className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition-all duration-150 ${
+        className={`group flex items-center gap-2 px-2.5 py-2.5 rounded-xl cursor-pointer transition-all duration-150 ${
           isActive ? "bg-white/5" : "hover:bg-white/5"
         }`}
         onClick={() => toggleChapterExpanded(chapter.id)}
@@ -93,7 +93,7 @@ function ChapterItem({ chapter }) {
         </button>
 
         <div
-          className={`w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+          className={`w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
             isActive
               ? "bg-gradient-to-br from-primary to-[#69daff] text-black"
               : "bg-white/10 text-white/50"
@@ -161,7 +161,7 @@ function ChapterItem({ chapter }) {
               ))}
               <button
                 onClick={() => addScene(chapter.id)}
-                className="flex items-center gap-1.5 pl-8 pr-2 py-1 text-xs text-white/25 hover:text-primary/70 transition-colors w-full"
+                className="flex items-center gap-2 pl-8 pr-2 py-2 text-xs text-white/20 hover:text-primary/70 transition-colors w-full font-medium"
               >
                 <Plus size={11} />
                 Add Scene
@@ -190,18 +190,18 @@ function CharactersPanel() {
   return (
     <div className="space-y-2 p-2">
       {characters.map((c) => (
-        <div key={c.name} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointer group transition-colors">
-          <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${c.color} flex items-center justify-center text-black text-xs font-bold flex-shrink-0`}>
+        <div key={c.name} className="flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-white/5 cursor-pointer group transition-colors">
+          <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${c.color} flex items-center justify-center text-black text-xs font-bold flex-shrink-0 shadow-lg shadow-black/20`}>
             {c.initials}
           </div>
           <div>
-            <div className="text-xs font-semibold text-white/80">{c.name}</div>
-            <div className="text-[10px] text-white/30">{c.role}</div>
+            <div className="text-sm font-semibold text-white/80 group-hover:text-white transition-colors">{c.name}</div>
+            <div className="text-[11px] text-white/30">{c.role}</div>
           </div>
         </div>
       ))}
-      <button className="flex items-center gap-2 w-full px-3 py-2 text-xs text-white/30 hover:text-primary/70 transition-colors rounded-lg hover:bg-white/5 mt-2">
-        <Plus size={12} /> Add Character
+      <button className="flex items-center gap-2.5 w-full px-4 py-3 text-xs font-medium text-white/25 hover:text-primary/70 transition-all rounded-xl hover:bg-white/5 mt-2">
+        <Plus size={14} /> Add Character
       </button>
     </div>
   );
@@ -218,8 +218,8 @@ function LorePanel() {
           </span>
         ))}
       </div>
-      <button className="flex items-center gap-2 w-full px-3 py-2 text-xs text-white/30 hover:text-primary/70 transition-colors rounded-lg hover:bg-white/5">
-        <Plus size={12} /> Add Lore Entry
+      <button className="flex items-center gap-2.5 w-full px-4 py-3 text-xs font-medium text-white/25 hover:text-primary/70 transition-all rounded-xl hover:bg-white/5">
+        <Plus size={14} /> Add Lore Entry
       </button>
     </div>
   );
@@ -262,11 +262,11 @@ export function EditorSidebar() {
       {sidebarOpen && (
         <motion.aside
           initial={{ width: 0, opacity: 0 }}
-          animate={{ width: 280, opacity: 1 }}
+          animate={{ width: 250, opacity: 1 }}
           exit={{ width: 0, opacity: 0 }}
           transition={{ duration: 0.25, ease: "easeInOut" }}
           className="flex-shrink-0 h-full overflow-hidden bg-[#0c0c0f] border-r border-white/5 flex flex-col"
-          style={{ width: 280 }}
+          style={{ width: 250 }}
         >
           {/* Panel Tab Switcher */}
           <div className="flex items-center gap-1 px-3 pt-3 pb-2 flex-shrink-0">
@@ -277,9 +277,9 @@ export function EditorSidebar() {
                   key={panel.id}
                   onClick={() => setActiveTab(panel.id)}
                   title={panel.label}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-200 ${
                     activeTab === panel.id
-                      ? "bg-white/10 text-white"
+                      ? "bg-white/10 text-white shadow-sm"
                       : "text-white/30 hover:text-white/60 hover:bg-white/5"
                   }`}
                 >
@@ -323,9 +323,9 @@ export function EditorSidebar() {
                     ))}
                     <button
                       onClick={addChapter}
-                      className="flex items-center gap-1.5 w-full px-3 py-2 text-xs text-white/25 hover:text-primary/70 transition-colors rounded-lg hover:bg-white/5 mt-2"
+                      className="flex items-center gap-2 w-full px-4 py-3 text-xs font-medium text-white/25 hover:text-primary/70 transition-all rounded-xl hover:bg-white/5 mt-2"
                     >
-                      <Plus size={12} />
+                      <Plus size={14} />
                       Add Chapter
                     </button>
                   </div>
