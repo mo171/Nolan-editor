@@ -102,7 +102,7 @@ function StudioCard({ item }) {
 }
 
 export function EditorStudioPanel() {
-  const { studioPanelOpen, setStudioPanelOpen } = useEditorContext();
+  const { studioPanelOpen, setStudioPanelOpen, activeMode } = useEditorContext();
 
   return (
     <AnimatePresence initial={false}>
@@ -128,6 +128,21 @@ export function EditorStudioPanel() {
             </button>
           </div>
 
+          {/* Q&A / Quick Inference bar */}
+          <div className="px-3 mb-4">
+            <div className="relative group">
+              <div className="absolute inset-0 bg-primary/5 rounded-xl blur-md group-focus-within:bg-primary/10 transition-all opacity-0 group-focus-within:opacity-100" />
+              <div className="relative flex items-center bg-[#131316] border border-white/5 group-focus-within:border-primary/30 rounded-xl px-3 py-2 transition-all shadow-xl">
+                <Radio size={14} className="text-primary mr-2 animate-pulse" />
+                <input 
+                  type="text"
+                  placeholder="Ask Nolan anything..."
+                  className="bg-transparent text-xs text-white/80 outline-none w-full placeholder:text-white/20"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Audio Overview Banner */}
           <div className="mx-3 mb-3 p-3 rounded-xl bg-gradient-to-br from-primary/10 to-[#69daff]/5 border border-primary/10">
             <div className="flex items-center gap-2 mb-2">
@@ -148,39 +163,71 @@ export function EditorStudioPanel() {
             </div>
           </div>
 
-          {/* Studio Grid */}
-          <div className="flex-1 overflow-y-auto px-3 pb-3">
-            <div className="grid grid-cols-2 gap-2">
-              {STUDIO_GRID.map((item) => (
-                <StudioCard key={item.id} item={item} />
-              ))}
-            </div>
+          {/* Studio Content */}
+          <div className="flex-1 overflow-y-auto px-3 pb-3 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+            {activeMode === "Thinking" ? (
+              <div className="flex flex-col h-full">
+                <div className="flex-1 space-y-4">
+                  {/* Chat Messages */}
+                  <div className="p-3 rounded-xl bg-white/5 border border-white/5 text-[11px] leading-relaxed text-white/70">
+                    <div className="text-[9px] font-bold text-primary uppercase mb-1">Nolan Intelligence</div>
+                    "The pacing in this paragraph feels slightly rushed. Consider adding more sensory details to the 'Lion's den' to increase tension before the Hare's dialogue."
+                  </div>
+                  <div className="p-3 rounded-xl bg-primary/10 border border-primary/20 text-[11px] leading-relaxed text-white/80 italic">
+                    <div className="text-[9px] font-bold text-white/30 uppercase mb-1">Context: Current Selection</div>
+                    "Animals started to visit his den one by one every day..."
+                  </div>
+                </div>
 
-            {/* Extra quick actions */}
-            <div className="mt-3 space-y-1.5">
-              <button className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/3 hover:bg-white/5 border border-white/5 hover:border-white/10 transition-all group">
-                <div className="w-7 h-7 rounded-lg bg-[#69daff]/15 flex items-center justify-center">
-                  <Radio size={13} className="text-[#69daff]" />
-                </div>
-                <div className="text-left flex-1 min-w-0">
-                  <div className="text-[10px] font-semibold text-white/60 group-hover:text-white/80 transition-colors">
-                    Broadcast
+                {/* Input Area */}
+                <div className="mt-4 pt-3 border-t border-white/5">
+                  <div className="flex items-center gap-2 bg-[#131316] border border-white/10 rounded-xl px-2 py-1.5 focus-within:border-primary/40 transition-all">
+                    <input 
+                      type="text" 
+                      placeholder="Ask about this scene..." 
+                      className="flex-1 bg-transparent text-[11px] text-white/80 outline-none px-1"
+                    />
+                    <button className="p-1 rounded-lg bg-primary/20 text-primary hover:bg-primary/30 shadow-lg shadow-primary/5">
+                      <Plus size={12} className="rotate-45" /> 
+                    </button>
                   </div>
-                  <div className="text-[9px] text-white/25">Share live session</div>
                 </div>
-              </button>
-              <button className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/3 hover:bg-white/5 border border-white/5 hover:border-white/10 transition-all group">
-                <div className="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center">
-                  <BookOpen size={13} className="text-primary" />
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  {STUDIO_GRID.map((item) => (
+                    <StudioCard key={item.id} item={item} />
+                  ))}
                 </div>
-                <div className="text-left flex-1 min-w-0">
-                  <div className="text-[10px] font-semibold text-white/60 group-hover:text-white/80 transition-colors">
-                    Story Bible
-                  </div>
-                  <div className="text-[9px] text-white/25">World reference sheet</div>
+
+                {/* Extra quick actions */}
+                <div className="mt-3 space-y-1.5">
+                  <button className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/3 hover:bg-white/5 border border-white/5 hover:border-white/10 transition-all group">
+                    <div className="w-7 h-7 rounded-lg bg-[#69daff]/15 flex items-center justify-center">
+                      <Radio size={13} className="text-[#69daff]" />
+                    </div>
+                    <div className="text-left flex-1 min-w-0">
+                      <div className="text-[10px] font-semibold text-white/60 group-hover:text-white/80 transition-colors">
+                        Broadcast
+                      </div>
+                      <div className="text-[9px] text-white/25">Share live session</div>
+                    </div>
+                  </button>
+                  <button className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/3 hover:bg-white/5 border border-white/5 hover:border-white/10 transition-all group">
+                    <div className="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center">
+                      <BookOpen size={13} className="text-primary" />
+                    </div>
+                    <div className="text-left flex-1 min-w-0">
+                      <div className="text-[10px] font-semibold text-white/60 group-hover:text-white/80 transition-colors">
+                        Story Bible
+                      </div>
+                      <div className="text-[9px] text-white/25">World reference sheet</div>
+                    </div>
+                  </button>
                 </div>
-              </button>
-            </div>
+              </>
+            )}
           </div>
 
           {/* Add Note FAB */}

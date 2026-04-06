@@ -73,11 +73,12 @@ export function EditorTopbar() {
     projectTitle,
     projectGenre,
     saveStatus,
+    activeMode,
     updateProjectTitle,
+    setActiveMode,
   } = useEditorContext();
 
   const [editingTitle, setEditingTitle] = useState(false);
-  const [activeMode, setActiveMode] = useState("Creative");
   const titleRef = useRef(null);
 
   useEffect(() => {
