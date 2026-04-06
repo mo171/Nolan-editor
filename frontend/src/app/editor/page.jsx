@@ -1,0 +1,79 @@
+"use client";
+
+import React, { useState, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { EditorProvider, useEditorContext } from "@/features/editor/context/editor-context";
+import { EditorTopbar } from "@/features/editor/components/editor-topbar";
+import { EditorSidebar } from "@/features/editor/components/editor-sidebar";
+import { TiptapEditor } from "@/features/editor/components/tiptap-editor";
+import { EditorStudioPanel } from "@/features/editor/components/editor-studio-panel";
+import { EditorAiBar } from "@/features/editor/components/editor-ai-bar";
+
+function SidebarToggle({ side }) {
+  const { sidebarOpen, setSidebarOpen, studioPanelOpen, setStudioPanelOpen } = useEditorContext();
+  const isLeft = side === "left";
+  const isOpen = isLeft ? sidebarOpen : studioPanelOpen;
+  const toggle = isLeft ? () => setSidebarOpen((v) => !v) : () => setStudioPanelOpen((v) => !v);
+
+  const Icon = isLeft
+    ? isOpen ? PanelLeftClose : PanelLeftOpen
+    : isOpen ? PanelRightClose : PanelRightOpen;
+
+  return (
+    <motion.button
+      whileHover={{ scale: 1.1 }}
+      whileTap={{ scale: 0.9 }}
+      onClick={toggle}
+      className={`absolute top-1/2 -translate-y-1/2 z-30 w-5 h-10 flex items-center justify-center rounded-full bg-[#1a1a1f] border border-white/10 text-white/30 hover:text-white/70 hover:border-white/20 transition-all shadow-lg
+        ${isLeft ? "-right-2.5" : "-left-2.5"}`}
+    >
+      <Icon size={11} />
+    </motion.button>
+  );
+}
+
+function EditorLayout() {
+  const { sidebarOpen, studioPanelOpen } = useEditorContext();
+  const [tiptapEditor, setTiptapEditor] = useState(null);
+
+  const handleEditorReady = useCallback((editor) => {
+    setTiptapEditor(editor);
+  }, []);
+
+  return (
+    <div className="h-screen flex flex-col overflow-hidden bg-[#0e0e11] font-sans">
+      {/* Topbar */}
+      <EditorTopbar />
+
+      {/* Main 3-column layout */}
+      <div className="flex flex-1 overflow-hidden relative">
+        {/* Left Sidebar */}
+        <div className="relative flex-shrink-0">
+          <EditorSidebar />
+          <SidebarToggle side="left" />
+        </div>
+
+        {/* Center Editor */}
+        <main className="flex-1 flex flex-col overflow-hidden min-w-0 relative">
+          <TiptapEditor onEditorReady={handleEditorReady} />
+          <EditorAiBar />
+        </main>
+
+        {/* Right Studio Panel */}
+        <div className="relative flex-shrink-0">
+          <SidebarToggle side="right" />
+          <EditorStudioPanel />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function EditorPage() {
+  return (
+    <EditorProvider>
+      <EditorLayout />
+    </EditorProvider>
+  );
+}
