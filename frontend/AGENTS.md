@@ -28,20 +28,23 @@ This version has breaking changes — APIs, conventions, and file structure may 
 # Tech Stack & Tooling Guidelines
 
 - **Package Manager:** We use `pnpm` exclusively. Do not use `npm` or `yarn`. 
-- **Components:** We are using **Shadcn UI** components. You must prioritize using existing Shadcn components (from `@/components/ui`) and adding new ones via `npx shadcn@latest add <component>` running via `pnpm dlx shadcn@latest add <component>`.
+- **Components:** We are using **Shadcn UI** components. You must prioritize using existing Shadcn components (from `@/components/ui`) and adding new ones via `pnpm dlx shadcn@latest add <component>`.
+- **Customization Rule:** Even when pixel-by-pixel matching and specific physical interactions (like `active:scale-95` or `framer-motion` animations) are requested, use Shadcn components as the base start whenever possible. Add the custom styles and animations on top of the Shadcn components rather than building completely from scratch and removing Shadcn from the picture.
 - Always style and customize Shadcn components with the colors defined in our "Nolan A.I Studio" Ethereal Manuscript theme above.
 <!-- END:nolan-ecosystem-rules -->
 
-<!-- BEGIN:nolan-architecture-checkpoint-3 -->
-# 📌 Nolan Editor - Agent Checkpoint 3 (Backend Implementation Complete)
+<!-- BEGIN:nolan-architecture-checkpoint-4 -->
+# 📌 Nolan Editor - Agent Checkpoint 4 (Frontend App Shell Complete)
 
-## 🏗️ Current Project State (Checkpoint 3 — 2026-04-07)
+## 🏗️ Current Project State (Checkpoint 4 — 2026-04-09)
 
 ### ✅ The Frontend (`frontend/`)
-The Next.js 16 (App Router) interface is ready for integration.
-- **Landing Page**: Fully implemented with custom `framer-motion` and bento-box layouts.
-- **Editor UI Route (`/editor`)**: A fully resizable 3-column layout built with `react-resizable-panels`. Contains Outliner (left), Tiptap prose canvas (center), and Nolan Studio features (right).
-- **Current State Gap**: Currently uses browser `localStorage` and placeholder React contexts. It does not yet talk to the newly built Python backend APIs.
+The Next.js 16 (App Router) interface app shell is largely complete and ready for backend integration.
+- **Landing Page (`/`)**: Fully implemented with custom `framer-motion` and bento-box layouts.
+- **Dashboard (`/dashboard`)**: A global workspace view with an animated collapsible sidebar and a masonry grid. Context state handles UI filtering.
+- **Project Configuration (`/project`)**: A 4-step wizard mapping explicitly to the backend `projects.py` schema (`Basic Info`, `World Setup`, `The Cast`, `Conflict`). It isolates macro-level project settings from active writing tools. Features an interactive, collapsible floating AI Assistant panel that reacts to wizard steps.
+- **Editor UI Route (`/editor`)**: A fully resizable 3-column layout built with `react-resizable-panels`. Contains Outliner (left), custom Tiptap prose canvas (center), and Nolan Studio features (right).
+- **Current State Gap**: All screens rely heavily on `useState`, Context APIs, and `localStorage`. Zero API requests are currently being made to the FastAPI backend.
 
 ### ✅ The AI Backend (`backend/`)
 We have built a highly sophisticated Python FastAPI intelligence engine. It runs low-latency features via parallel processing, WebSockets, and background tasks.
@@ -63,6 +66,26 @@ Ghost Text is invoked via Frontend WebSocket `ws.send({ type: "ghost_request", c
 - **Vector DB**: Chunks are stored in **Supabase pgvector**. 
 - **Retrieval**: `services/rag/retriever.py` queries Supabase via RPC for parallel narrative context ("what happened before") and DNA context ("what writing style should I copy").
 - **LangChain Generator**: `services/llm/chain.py` uses `gpt-4o-mini` with `streaming=True`. Token chunks are yielded directly to the WebSocket as they are created for ~500ms TTFB perceived latency.
+
+> **Frontend Implementation Note (Avoid Vercel AI SDK)**
+> Do NOT use the Vercel AI SDK for frontend streaming. The Vercel SDK expects standard HTTP streams (like SSE) and cannot natively parse our multi-purpose JSON WebSocket messages without heavy hacking. 
+> 
+> **Recommended Approach:** Build a lightweight Native WebSocket Context Provider in React.
+> ```jsx
+> // Example logic for the frontend:
+> const socket = new WebSocket('ws://localhost:8000/ws/project_id');
+> socket.onmessage = (event) => {
+>   const data = JSON.parse(event.data);
+>   
+>   if (data.type === "ghost_token") {
+>      // Append chunk to your chat or Tiptap editor state
+>      setGhostText(prev => prev + data.chunk);
+>   } else if (data.type === "nlp_event") {
+>      // Trigger character updates in sidebar
+>   }
+> };
+> ```
+> This approach provides total control over the 500ms low-latency LangChain stream without forcing Python WebSockets into Vercel's HTTP-based ecosystem.
 
 #### 4. The Neo4j Knowledge Graph 🕸️ (Phase 6)
 - **Data Model**: Maps `(Character)-[:APPEARS_IN]->(Scene)` and tracks chronological character timelines.
