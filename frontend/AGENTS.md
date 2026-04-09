@@ -41,6 +41,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 ### ✅ The Frontend (`frontend/`)
 The Next.js 16 (App Router) interface app shell is largely complete and ready for backend integration.
 - **Landing Page (`/`)**: Fully implemented with custom `framer-motion` and bento-box layouts.
+- **Authentication (`/login`, `/signup`)**: Fully integrated Supabase auth layer utilizing `react-hook-form` for input validation and a global `zustand` store (`store/authStore.js`) for persistent session management. The UI is custom-styled to the glassmorphism Ethereal theme.
 - **Dashboard (`/dashboard`)**: A global workspace view with an animated collapsible sidebar and a masonry grid. Context state handles UI filtering.
 - **Project Configuration (`/project`)**: A 4-step wizard mapping explicitly to the backend `projects.py` schema (`Basic Info`, `World Setup`, `The Cast`, `Conflict`). It isolates macro-level project settings from active writing tools. Features an interactive, collapsible floating AI Assistant panel that reacts to wizard steps.
 - **Editor UI Route (`/editor`)**: A fully resizable 3-column layout built with `react-resizable-panels`. Contains Outliner (left), custom Tiptap prose canvas (center), and Nolan Studio features (right).
