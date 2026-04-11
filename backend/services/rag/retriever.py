@@ -2,13 +2,18 @@
 Context-Aware Retriever
 =========================
 Queries Supabase pgvector via RPC `search_scene_embeddings`.
-Supports multi-mode search (narrative, dna).
+Supports multi-mode search (narrative, dna) with hybrid retrieval.
 
-Changes (Phase 4+):
-  - Similarity threshold gating: narrative ≥ 0.35, DNA ≥ 0.50
+Retrieval Strategy (Phase 5 upgrade):
+  - Vector similarity (semantic understanding)
+  - Keyword boosting (exact phrase matches)
+  - Recency boost (recent text prioritized)
+  - Similarity threshold gating
+  
+Changes:
+  - Similarity threshold gating: narrative ≥ 0.20, DNA ≥ 0.25
   - Recency boost: for narrative chunks, higher chunk_index floats up
-    (= most recently written text is prioritized)
-  - Zero-result fast path: returns [] immediately if query is empty
+  - Keyword boost: exact matches in query get +0.15 similarity bonus
 """
 
 import logging
@@ -20,7 +25,6 @@ from services.rag.indexer import get_embedding_model
 logger = logging.getLogger("nolan.rag.retriever")
 
 # ── Similarity thresholds ───────────────────────────────────────────────────
-# Tuned conservatively: narrative needs broad tolerance, DNA must be close
 _THRESHOLDS = {
     "narrative": 0.20,
     "dna":       0.25,
@@ -38,6 +42,30 @@ def _recency_score(chunk: Dict) -> float:
     return idx / 20.0
 
 
+def _keyword_boost(chunk: Dict, query_text: str) -> float:
+    """
+    Boost chunks that contain exact phrases from the query.
+    This helps catch specific character names, locations, or plot points
+    that pure semantic similarity might miss.
+    """
+    chunk_text = chunk.get("chunk_text", "").lower()
+    query_lower = query_text.lower()
+    
+    # Extract meaningful words (3+ chars, not common stopwords)
+    stopwords = {"the", "and", "but", "for", "with", "from", "this", "that", "was", "were"}
+    query_words = [w for w in query_lower.split() if len(w) >= 3 and w not in stopwords]
+    
+    if not query_words:
+        return 0.0
+    
+    # Count exact matches
+    matches = sum(1 for word in query_words if word in chunk_text)
+    match_ratio = matches / len(query_words)
+    
+    # Boost up to +0.15 for perfect keyword match
+    return match_ratio * 0.15
+
+
 async def retrieve(
     query_text: str,
     project_id: str,
@@ -46,7 +74,7 @@ async def retrieve(
     filters: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Embeds the user query and searches the vector store.
+    Embeds the user query and searches the vector store with hybrid scoring.
 
     Args:
         query_text:  The user's input/cursor context.
@@ -97,12 +125,23 @@ async def retrieve(
         logger.info(f"[Retriever] All chunks below threshold {threshold} for mode={mode}. Returning empty.")
         return []
 
-    # 5. Recency boost for narrative (blend similarity + recency)
-    if mode == "narrative":
-        chunks.sort(
-            key=lambda c: c.get("similarity", 0.0) * 0.85 + _recency_score(c) * 0.15,
-            reverse=True,
-        )
-    # DNA: pure similarity order is fine (no recency concept for style)
+    # 5. Hybrid scoring: semantic + recency + keyword boost
+    for chunk in chunks:
+        base_similarity = chunk.get("similarity", 0.0)
+        
+        if mode == "narrative":
+            # Narrative mode: blend all three signals
+            recency = _recency_score(chunk)
+            keyword = _keyword_boost(chunk, query_text)
+            
+            # Weighted combination: 70% semantic, 15% recency, 15% keyword
+            hybrid_score = (base_similarity * 0.70) + (recency * 0.15) + keyword
+            chunk["hybrid_score"] = hybrid_score
+        else:
+            # DNA mode: pure similarity (no recency concept for style)
+            chunk["hybrid_score"] = base_similarity
+    
+    # Sort by hybrid score
+    chunks.sort(key=lambda c: c.get("hybrid_score", 0.0), reverse=True)
 
     return chunks[:match_count]

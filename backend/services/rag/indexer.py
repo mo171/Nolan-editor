@@ -20,14 +20,25 @@ logger = logging.getLogger("nolan.rag.indexer")
 _embedding_model = None
 
 def get_embedding_model():
-    """Lazy-loads the embedding model."""
+    """
+    Lazy-loads the embedding model.
+    
+    Model choice rationale:
+    - all-MiniLM-L6-v2 (384d): Fast but weak for creative writing
+    - all-mpnet-base-v2 (768d): BETTER - stronger semantic understanding
+    - instructor-large (768d): BEST - instruction-tuned for domain-specific retrieval
+    
+    Current: all-mpnet-base-v2 for balance of quality + speed.
+    Upgrade to instructor-large if quality is paramount.
+    """
     global _embedding_model
     if _embedding_model is None:
         try:
             from sentence_transformers import SentenceTransformer
-            logger.info("Loading sentence-transformers/all-MiniLM-L6-v2...")
-            # Load local model (downloads if not present)
-            _embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+            # Upgraded from all-MiniLM-L6-v2 for better creative writing understanding
+            model_name = "sentence-transformers/all-mpnet-base-v2"
+            logger.info(f"Loading {model_name}...")
+            _embedding_model = SentenceTransformer(model_name)
             logger.info("✅ Embedding model loaded")
         except ImportError:
             logger.error("sentence-transformers not installed. Run: pip install sentence-transformers torch")

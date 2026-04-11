@@ -74,8 +74,8 @@ async def _handle_ghost_request(websocket: WebSocket, project_id: str, data: dic
     # ── 1. Retrieval (with similarity gating inside retriever) ─────────────
     from services.rag.retriever import retrieve
     try:
-        narrative_chunks = await retrieve(cursor_text, project_id, mode="narrative", match_count=4)
-        dna_chunks       = await retrieve(cursor_text, project_id, mode="dna",       match_count=2)
+        narrative_chunks = await retrieve(cursor_text, project_id, mode="narrative", match_count=8)
+        dna_chunks       = await retrieve(cursor_text, project_id, mode="dna",       match_count=3)
     except Exception as e:
         logger.error(f"[WS] RAG retrieval failed: {e}")
         narrative_chunks, dna_chunks = [], []
