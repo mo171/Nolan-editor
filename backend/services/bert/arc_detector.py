@@ -67,22 +67,31 @@ class PersonaDetector:
         if traits and len(current_text) > 10:
             try:
                 self._ensure_model()
-                # Create hypotheses: "This text is consistent with a {trait} persona."
-                # and "This text is out of character for a {trait} persona."
-                # But a cleaner way: check if text matches opposite behaviors
-                candidate_labels = ["consistent behavior", "out of character behavior", "trait violation"]
-                
-                # We can also check specific trait contradictions if we know the opposites
-                # For now, let's check high-level behavioral alignment
+                # Zero-shot classification requires hypothesis_template with {} placeholder
+                # We'll check if the text shows behavior consistent with the character's traits
                 traits_str = ", ".join(traits)
-                prompt = f"The character {char_name} is defined as: {traits_str}. In this scene, their behavior is:"
                 
-                res = self.classifier(current_text, candidate_labels=candidate_labels, hypothesis_template=prompt)
+                # Build candidate labels that describe behavioral alignment
+                candidate_labels = [
+                    f"behavior consistent with {traits_str}",
+                    f"behavior contradicting {traits_str}",
+                    "out of character actions"
+                ]
+                
+                # The hypothesis_template MUST contain {} where the label gets inserted
+                hypothesis_template = "This text shows {}."
+                
+                res = self.classifier(
+                    current_text[:512],  # Truncate to avoid token limits
+                    candidate_labels=candidate_labels, 
+                    hypothesis_template=hypothesis_template
+                )
                 
                 top_label = res['labels'][0]
                 top_score = res['scores'][0]
 
-                if top_label in ["out of character behavior", "trait violation"] and top_score > 0.7:
+                # Flag if contradiction or OOC behavior scores highest
+                if ("contradicting" in top_label or "out of character" in top_label) and top_score > 0.65:
                     persona_warning = f"Behavior appears inconsistent with {char_name}'s traits ({traits_str})."
             except Exception as e:
                 logger.error(f"[Arc] BERT consistency check failed: {e}")

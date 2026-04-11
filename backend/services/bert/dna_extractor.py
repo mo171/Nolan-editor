@@ -49,13 +49,18 @@ async def extract_dna_from_text(plain_text: str) -> Dict[str, Any]:
     """
     Computes statistical and BERT-derived properties from a reference text.
     Returns a fingerprint dict consumed by prompt_builder.py.
+    
+    Upgraded extraction (Phase 5):
+    - Pacing rhythm (action vs. reflection ratio)
+    - Metaphor density (figurative language detection)
+    - Paragraph structure patterns
+    - Dialogue attribution style
     """
     if not plain_text or len(plain_text.strip()) < 50:
         logger.warning("Text too short for meaningful DNA extraction.")
         return _get_default_dna()
 
     paragraphs = split_into_paragraphs(plain_text)
-    print(paragraphs)
     if not paragraphs:
         return _get_default_dna()
 
@@ -69,17 +74,35 @@ async def extract_dna_from_text(plain_text: str) -> Dict[str, Any]:
 
     avg_sentence_len = sum(len(s.split()) for s in sentences) / num_sentences
 
+    # ── 2. Dialogue analysis ──────────────────────────────────────────────────
     dialogues = extract_dialogue_lines(plain_text)
     dialogue_ratio = len(dialogues) / num_sentences
+    
+    # Dialogue attribution style (said-bookisms vs. simple)
+    attribution_words = ["said", "asked", "replied", "whispered", "shouted", "muttered"]
+    attribution_count = sum(1 for d in dialogues if any(word in d.lower() for word in attribution_words))
+    has_attribution_style = attribution_count > len(dialogues) * 0.3 if dialogues else False
 
+    # ── 3. Vocabulary & lexical richness ──────────────────────────────────────
     words = plain_text.lower().split()
     unique_words = set(words)
     vocab_diversity = len(unique_words) / len(words) if words else 0.0
+    
+    # Metaphor/figurative language detection (simple heuristic)
+    figurative_markers = ["like", "as if", "seemed", "appeared", "reminded", "resembled"]
+    metaphor_count = sum(1 for s in sentences if any(marker in s.lower() for marker in figurative_markers))
+    metaphor_density = metaphor_count / num_sentences if num_sentences > 0 else 0.0
 
-    # ── 2. BERT: sample representative paragraphs for tone/emotion ───────────
-    # Use the first 3 substantive paragraphs to avoid excessive inference time
+    # ── 4. Paragraph structure ────────────────────────────────────────────────
+    para_lengths = [len(p.split()) for p in paragraphs if p.strip()]
+    avg_para_length = sum(para_lengths) / len(para_lengths) if para_lengths else 0
+    
+    # Short paragraphs = punchy pacing, long = contemplative
+    pacing_style = "fast-paced" if avg_para_length < 50 else "contemplative" if avg_para_length > 120 else "balanced"
+
+    # ── 5. BERT: sample representative paragraphs for tone/emotion ────────────
     sample_paras = [p for p in paragraphs if len(p.split()) >= 10][:3]
-    sample_text = " ".join(sample_paras)[:1000]  # cap tokens
+    sample_text = " ".join(sample_paras)[:1000]
 
     sentiment_result = analyze_sentiment(sample_text)
     emotion_result   = classify_emotion(sample_text)
@@ -87,7 +110,7 @@ async def extract_dna_from_text(plain_text: str) -> Dict[str, Any]:
     dominant_emotion = emotion_result.get("dominant_emotion", "neutral")
     sentiment_label  = sentiment_result.get("label", "neutral")
 
-    # Compose a human-readable tone string for the system prompt
+    # ── 6. Compose human-readable tone string ─────────────────────────────────
     tone_parts = []
     if sentiment_label == "negative":
         tone_parts.append("dark")
@@ -97,19 +120,25 @@ async def extract_dna_from_text(plain_text: str) -> Dict[str, Any]:
     if dominant_emotion not in ("neutral",):
         tone_parts.append(dominant_emotion)
 
-    avg_len = avg_sentence_len
-    if avg_len < 12:
+    if avg_sentence_len < 12:
         tone_parts.append("terse")
-    elif avg_len > 20:
+    elif avg_sentence_len > 20:
         tone_parts.append("lyrical")
+    
+    if metaphor_density > 0.15:
+        tone_parts.append("poetic")
 
     dominant_tone = ", ".join(tone_parts) if tone_parts else "balanced-literary"
 
-    # ── 3. Assemble fingerprint ───────────────────────────────────────────────
+    # ── 7. Assemble fingerprint ───────────────────────────────────────────────
     dna = {
         "avg_sentence_len":        round(avg_sentence_len, 1),
         "vocab_diversity":          round(vocab_diversity, 2),
         "dialogue_ratio":           round(dialogue_ratio, 2),
+        "metaphor_density":         round(metaphor_density, 2),
+        "avg_paragraph_length":     round(avg_para_length, 1),
+        "pacing_style":             pacing_style,
+        "has_attribution_style":    has_attribution_style,
         "dominant_tone":            dominant_tone,
         "sentence_length_label":    _sentence_length_label(avg_sentence_len),
         "dialogue_frequency_label": _dialogue_frequency_label(dialogue_ratio),
@@ -118,8 +147,11 @@ async def extract_dna_from_text(plain_text: str) -> Dict[str, Any]:
         "emotional_spectrum":       emotion_result.get("breakdown", {}),
         "sentiment_label":          sentiment_label,
     }
-    print(dna)
-    logger.info(f"[DNA] Fingerprint: tone='{dominant_tone}' sentence_len={avg_sentence_len:.1f} dialogue={dialogue_ratio:.2f}")
+    
+    logger.info(
+        f"[DNA] Fingerprint: tone='{dominant_tone}' sentence_len={avg_sentence_len:.1f} "
+        f"dialogue={dialogue_ratio:.2f} metaphor={metaphor_density:.2f} pacing={pacing_style}"
+    )
     return dna
 
 

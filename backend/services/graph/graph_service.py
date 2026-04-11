@@ -20,6 +20,7 @@ async def update_graph(project_id: str, scene_id: str, nlp_result: ExtractionRes
     Called by scene_processor.py after NLP extraction.
     Creates or updates Scene, Character nodes and their relationships.
     Tracks Social Graph (co-occurrence) and Action Graph (SVO).
+    Uses proper session management with retry logic for connection failures.
     """
     driver = get_neo4j_driver()
     if not driver:
@@ -77,11 +78,8 @@ async def update_graph(project_id: str, scene_id: str, nlp_result: ExtractionRes
         char_set = {c.lower() for c in nlp_result.scene_characters}
         actions = []
         for svo in nlp_result.svo_triples:
-            # We use fuzzy matching/canonical mapping here? 
-            # For now, simplistic: if subject and object are known characters
             if svo.subject and svo.obj and svo.subject.lower() in char_set and svo.obj.lower() in char_set:
-                # Need to map back to original casing used in nlp_result.scene_characters for MATCH to work
-                # or rely on Neo4j name being exact. Logic: find the name in characters list that matches
+                # Map back to original casing
                 sub_name = next((c for c in nlp_result.scene_characters if c.lower() == svo.subject.lower()), svo.subject)
                 obj_name = next((c for c in nlp_result.scene_characters if c.lower() == svo.obj.lower()), svo.obj)
                 
@@ -92,6 +90,7 @@ async def update_graph(project_id: str, scene_id: str, nlp_result: ExtractionRes
                     "sentence": svo.sentence
                 })
 
+        # Use context manager for proper session lifecycle
         with driver.session() as session:
             # Run Base
             session.run(
@@ -135,11 +134,18 @@ async def update_graph(project_id: str, scene_id: str, nlp_result: ExtractionRes
 
     except Exception as e:
         logger.error(f"[Graph] Neo4j update failed for scene {scene_id}: {e}")
+        # On connection failure, invalidate the driver so it reconnects next time
+        if "defunct" in str(e).lower() or "failed to read" in str(e).lower():
+            logger.warning("[Graph] Detected defunct connection, will reconnect on next call")
+            global _driver
+            from lib.neo4j_client import close_neo4j_driver
+            close_neo4j_driver()
 
 
 async def get_character_timeline(project_id: str, character_name: str) -> list:
     """
     Fetch the chronological timeline of a character from Neo4j.
+    Uses proper session management with error recovery.
     """
     driver = get_neo4j_driver()
     if not driver:
@@ -156,12 +162,18 @@ async def get_character_timeline(project_id: str, character_name: str) -> list:
             return [record["scene_id"] for record in result]
     except Exception as e:
         logger.error(f"[Graph] Neo4j timeline failed: {e}")
+        # On connection failure, invalidate the driver
+        if "defunct" in str(e).lower() or "failed to read" in str(e).lower():
+            logger.warning("[Graph] Detected defunct connection, will reconnect on next call")
+            from lib.neo4j_client import close_neo4j_driver
+            close_neo4j_driver()
         return []
 
 async def init_project_graph(project_id: str, characters: list):
     """
     Called upon project creation to seed the initial cast list into Neo4j.
     Ensures that user-defined characters exist in the graph immediately.
+    Uses proper session management with error recovery.
     """
     if not characters:
         return
@@ -201,3 +213,9 @@ async def init_project_graph(project_id: str, characters: list):
         logger.info(f"[Graph] Initialized graph for project={project_id} with {len(characters)} characters")
     except Exception as e:
         logger.error(f"[Graph] Neo4j init failed for project {project_id}: {e}")
+        # On connection failure, invalidate the driver
+        if "defunct" in str(e).lower() or "failed to read" in str(e).lower():
+            logger.warning("[Graph] Detected defunct connection, will reconnect on next call")
+            from lib.neo4j_client import close_neo4j_driver
+            close_neo4j_driver()
+

@@ -395,7 +395,7 @@ async def upload_dna(project_id: str, file: UploadFile = File(...)):
 async def delete_project(project_id: str):
     """
     NUCLEAR DELETE: Purges every single trace of a project from all tables
-    to bypass any potential foreign key constraint bottlenecks.
+    in the correct order to respect foreign key constraints.
     """
     try:
         # 1. Fetch project to verify existence and get user_id
@@ -408,33 +408,46 @@ async def delete_project(project_id: str):
         title = proj_res.data["title"]
         logger.info(f"[Projects] ☢️ Nuclear deletion started: '{title}' ({project_id})")
 
-        # 2. PURGE ORDER (leaf nodes first to avoid FK constraints)
+        # 2. PURGE ORDER (respecting FK constraints - delete children before parents)
         
-        # A. Purge Embeddings (pgvector)
-        supabase.table("scene_embeddings").delete().eq("project_id", project_id).execute()
-        
-        # B. Purge NLP Analysis (requires scene_id lookups, but we can purge characters first)
-        # character references scenes via first_seen_scene_id (the main bottleneck)
-        supabase.table("characters").delete().eq("project_id", project_id).execute()
-        supabase.table("project_characters").delete().eq("project_id", project_id).execute()
-        
-        # C. Purge Chapters & Scenes
-        # Note: chapters link to scenes. We can delete chapters and let cascade handle scenes,
-        # but being nuclear means we delete scenes first.
+        # A. Get all chapter and scene IDs first (we'll need them)
         chapters_res = supabase.table("chapters").select("id").eq("project_id", project_id).execute()
         ch_ids = [c["id"] for c in (chapters_res.data or [])]
         
+        scene_ids = []
         if ch_ids:
-            # Delete analysis for all scenes in these chapters
             scenes_res = supabase.table("scenes").select("id").in_("chapter_id", ch_ids).execute()
             scene_ids = [s["id"] for s in (scenes_res.data or [])]
-            if scene_ids:
-                supabase.table("scene_nlp_analysis").delete().in_("scene_id", scene_ids).execute()
-                supabase.table("scenes").delete().in_("id", scene_ids).execute()
-            
+        
+        # B. Delete scene_embeddings (references project_id and scene_id)
+        supabase.table("scene_embeddings").delete().eq("project_id", project_id).execute()
+        logger.info(f"[Projects] Deleted scene_embeddings for {project_id}")
+        
+        # C. Delete scene_nlp_analysis (references scene_id)
+        if scene_ids:
+            supabase.table("scene_nlp_analysis").delete().in_("scene_id", scene_ids).execute()
+            logger.info(f"[Projects] Deleted scene_nlp_analysis for {len(scene_ids)} scenes")
+        
+        # D. Delete characters (references scenes via first_seen_scene_id)
+        # This MUST happen before deleting scenes
+        supabase.table("characters").delete().eq("project_id", project_id).execute()
+        logger.info(f"[Projects] Deleted characters for {project_id}")
+        
+        # E. Delete project_characters (references project_id)
+        supabase.table("project_characters").delete().eq("project_id", project_id).execute()
+        logger.info(f"[Projects] Deleted project_characters for {project_id}")
+        
+        # F. Delete scenes (references chapter_id)
+        if scene_ids:
+            supabase.table("scenes").delete().in_("id", scene_ids).execute()
+            logger.info(f"[Projects] Deleted {len(scene_ids)} scenes")
+        
+        # G. Delete chapters (references project_id)
+        if ch_ids:
             supabase.table("chapters").delete().eq("project_id", project_id).execute()
-
-        # D. Final strike: The Project Row
+            logger.info(f"[Projects] Deleted {len(ch_ids)} chapters")
+        
+        # H. Final strike: The Project Row
         final_res = supabase.table("projects").delete().eq("id", project_id).execute()
         
         if not final_res.data:
@@ -446,7 +459,6 @@ async def delete_project(project_id: str):
         await cache.invalidate_user_projects(user_id)
         await cache.invalidate_dna(project_id)
         await cache.invalidate_characters(project_id)
-        # Deep wipe of user project list
         await cache.delete(f"user_projects:{user_id}")
 
         logger.info(f"[Projects] ☢️ ✅ Nuclear purge complete for '{title}'")

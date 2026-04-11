@@ -45,8 +45,8 @@ logger = logging.getLogger("nolan.app")
 async def lifespan(app: FastAPI):
     """
     Runs at startup and shutdown.
-    Startup: connect Redis, verify Supabase, (later) warm model singletons.
-    Shutdown: gracefully close Redis.
+    Startup: connect Redis, verify Supabase, load models, initialize Neo4j.
+    Shutdown: gracefully close Redis and Neo4j connections.
     """
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info("  Nolan AI Studio — Starting up")
@@ -67,7 +67,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ Supabase connection failed: {e}")
 
-    # ── Phase 2+ will add model singleton loading here ───────────────────────
+    # ── Neo4j connection pool initialization ──────────────────────────────────
+    try:
+        from lib.neo4j_client import get_neo4j_driver
+        driver = get_neo4j_driver()
+        if driver:
+            logger.info("✅ Neo4j connection pool initialized")
+    except Exception as e:
+        logger.warning(f"⚠️  Neo4j unavailable ({e}) — graph features disabled")
+
+    # ── Phase 2+ model singleton loading ──────────────────────────────────────
     from services.nlp.pipeline import load_spacy
     try:
         load_spacy()
@@ -83,8 +92,17 @@ async def lifespan(app: FastAPI):
 
     # ── Shutdown ─────────────────────────────────────────────────────────────
     logger.info("Shutting down...")
+    
+    # Close Redis
     await cache.disconnect()
     logger.info("✅ Redis disconnected cleanly")
+    
+    # Close Neo4j driver
+    try:
+        from lib.neo4j_client import close_neo4j_driver
+        close_neo4j_driver()
+    except Exception as e:
+        logger.warning(f"Neo4j cleanup warning: {e}")
 
 
 # ─── App instance ─────────────────────────────────────────────────────────────
