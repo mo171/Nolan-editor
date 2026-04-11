@@ -3,6 +3,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
 export function FinalCTA() {
   return (
@@ -23,12 +24,16 @@ export function FinalCTA() {
             Join thousands of creators building the next generation of narrative experiences.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-            <Button className="bg-white text-[#2b006e] px-10 h-14 rounded-full font-bold text-lg hover:bg-white transition-all hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(255,255,255,0.3)] border-none">
-              Get Started Free
-            </Button>
-            <Button variant="outline" className="bg-black/20 text-white px-10 h-14 rounded-full font-bold text-lg border border-white/20 hover:bg-black/40 hover:text-white transition-all hover:scale-105 active:scale-95 shadow-xl">
-              Schedule Demo
-            </Button>
+            <Link href="/signup">
+              <Button className="bg-white text-[#2b006e] px-10 h-14 rounded-full font-bold text-lg hover:bg-white transition-all hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(255,255,255,0.3)] border-none">
+                Get Started Free
+              </Button>
+            </Link>
+            <Link href="/login">
+              <Button variant="outline" className="bg-black/20 text-white px-10 h-14 rounded-full font-bold text-lg border border-white/20 hover:bg-black/40 hover:text-white transition-all hover:scale-105 active:scale-95 shadow-xl">
+                Sign In
+              </Button>
+            </Link>
           </div>
         </div>
       </motion.div>

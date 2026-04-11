@@ -2,6 +2,8 @@
 
 import React, { createContext, useContext, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useCreateProject } from "@/hooks/useCreateProject";
+import { useDnaUpload } from "@/hooks/useDnaUpload";
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
 export const WIZARD_STEPS = [
@@ -37,6 +39,9 @@ const ProjectContext = createContext(null);
 
 export function ProjectProvider({ children }) {
   const router = useRouter();
+  const { createProject, isCreating } = useCreateProject();
+  const { uploadDna, isUploading } = useDnaUpload();
+
   const [activeStep, setActiveStep] = useState(0);
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [submitStatus, setSubmitStatus] = useState("idle"); // idle | submitting | success | error
@@ -102,38 +107,32 @@ export function ProjectProvider({ children }) {
     }
   }, [activeStep]);
 
-  // ── Submit (100% mock — no API call) ─────────────────────────────────────
+  // ── Submit (wired to real backend) ─────────────────────────────────────────
   const handleSubmit = useCallback(async () => {
     setSubmitStatus("submitting");
+    try {
+      // 1. POST project to backend — returns { id, title, ... }
+      const project = await createProject(formData);
 
-    // Log the fully assembled payload — backend can consume this later
-    console.log("[Nolan] Project payload →", {
-      title: formData.title,
-      genre: formData.genre,
-      premise: formData.premise,
-      desired_ending: formData.desiredEnding,
-      themes: formData.themes,
-      llm_temperature: formData.llmTemperature,
-      characters: formData.characters,
-      // DNA file stored in state — upload endpoint not yet available
-      dna_file_name: formData.dnaFile?.name ?? null,
-    });
+      // 2. If user uploaded a DNA file, kick off background indexing
+      if (formData.dnaFile && project.id) {
+        addToast("Embedding narrative DNA... AI will improve over time.", "info");
+        // uploadDna returns immediately (202) — indexing runs in the backend
+        await uploadDna(project.id, formData.dnaFile).catch((err) => {
+          addToast(`DNA upload failed: ${err.message}`, "error");
+        });
+      }
 
-    // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, 1600));
+      setSubmitStatus("success");
+      addToast("Narrative universe created! Routing to editor…", "success");
 
-    setSubmitStatus("success");
-    addToast("Narrative universe created! Routing to editor…", "success");
-
-    if (formData.dnaFile) {
-      setTimeout(() => {
-        addToast("DNA processing queued — AI style suggestions will improve over time.", "info");
-      }, 500);
+      // 3. Navigate to editor with the real project ID
+      setTimeout(() => router.push(`/editor/${project.id}`), 800);
+    } catch (error) {
+      setSubmitStatus("error");
+      addToast(error.message || "Failed to create project", "error");
     }
-
-    // Route to editor
-    setTimeout(() => router.push("/editor"), 800);
-  }, [formData, addToast, router]);
+  }, [formData, addToast, router, createProject, uploadDna]);
 
   return (
     <ProjectContext.Provider
@@ -141,6 +140,8 @@ export function ProjectProvider({ children }) {
         activeStep,
         formData,
         submitStatus,
+        isUploading,
+        isCreating,
         toasts,
         updateField,
         addToast,

@@ -2,8 +2,22 @@
 
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { Play, MoreHorizontal, Clock } from "lucide-react";
+import { Play, MoreHorizontal, Clock, Trash2, Loader2 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { useDashboard } from "@/features/dashboard/context/dashboard-context";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 // ─── Progress Bar ─────────────────────────────────────────────────────────────
 function ProgressBar({ progress, accentColor }) {
@@ -202,7 +216,7 @@ function CoverArt({ project, height = "h-40" }) {
         className={`absolute inset-0 bg-gradient-to-br ${project.coverGradient}`}
       />
       {/* Abstract art */}
-      {patterns[project.id] ?? null}
+      {patterns[project.patternKey] ?? null}
       {/* Subtle noise overlay */}
       <div
         className="absolute inset-0 opacity-[0.03]"
@@ -218,6 +232,20 @@ function CoverArt({ project, height = "h-40" }) {
 // ─── Featured (Large) Project Card ───────────────────────────────────────────
 export function FeaturedProjectCard({ project }) {
   const [hovered, setHovered] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const { deleteProject } = useDashboard();
+
+  const handleDelete = async (e) => {
+    e.stopPropagation();
+    setIsDeleting(true);
+    try {
+      await deleteProject(project.id);
+      toast.success("Manuscript deleted successfully");
+    } catch (err) {
+      toast.error("Failed to delete manuscript");
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <motion.div
@@ -243,17 +271,54 @@ export function FeaturedProjectCard({ project }) {
         <StatusBadge status={project.status} colorClass={project.statusColor} />
       </div>
 
-      {/* Play button */}
-      <Link href="/editor">
-        <motion.button
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: hovered ? 1 : 0, scale: hovered ? 1 : 0.8 }}
-          transition={{ duration: 0.2 }}
-          className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm border border-white/15 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all"
-        >
-          <Play size={14} fill="currentColor" />
-        </motion.button>
-      </Link>
+      {/* Actions */}
+      <div className="absolute top-3 right-3 flex items-center gap-2 z-10">
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: hovered ? 1 : 0, scale: hovered ? 1 : 0.8 }}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-9 h-9 rounded-full bg-red-500/10 hover:bg-red-500/20 backdrop-blur-sm border border-red-500/20 flex items-center justify-center text-red-500 transition-all shadow-[0_0_15px_rgba(239,68,68,0.1)] hover:shadow-[0_0_20px_rgba(239,68,68,0.2)]"
+            >
+              {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+            </motion.button>
+          </AlertDialogTrigger>
+          <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Manuscript?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently remove "<span className="text-white">{project.title}</span>" and all its chapters, characters, and AI analysis. This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction 
+                variant="destructive"
+                disabled={isDeleting}
+                onClick={handleDelete}
+              >
+                {isDeleting ? "Deleting..." : "Delete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <Link href={`/editor/${project.id}`} onClick={(e) => e.stopPropagation()}>
+          <motion.button
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: hovered ? 1 : 0, scale: hovered ? 1 : 0.8 }}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            transition={{ duration: 0.2 }}
+            className="w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm border border-white/15 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all"
+          >
+            <Play size={14} fill="currentColor" />
+          </motion.button>
+        </Link>
+      </div>
 
       {/* Content */}
       <div className="p-4">
@@ -286,6 +351,21 @@ export function FeaturedProjectCard({ project }) {
 // ─── Small Project Card ───────────────────────────────────────────────────────
 export function SmallProjectCard({ project, delay = 0 }) {
   const [hovered, setHovered] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const router = useRouter();
+  const { deleteProject } = useDashboard();
+
+  const handleDelete = async (e) => {
+    e.stopPropagation();
+    setIsDeleting(true);
+    try {
+      await deleteProject(project.id);
+      toast.success("Manuscript deleted");
+    } catch (err) {
+      toast.error("Deletion failed");
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <motion.div
@@ -295,7 +375,8 @@ export function SmallProjectCard({ project, delay = 0 }) {
       transition={{ duration: 0.35, ease: "easeOut", delay }}
       onHoverStart={() => setHovered(true)}
       onHoverEnd={() => setHovered(false)}
-      className="group relative cursor-pointer rounded-2xl overflow-hidden bg-[#131316] border border-white/5 hover:border-white/12 transition-all duration-300 flex flex-col"
+      onClick={() => router.push(`/editor/${project.id}`)}
+      className="group relative cursor-pointer rounded-2xl overflow-hidden bg-[#131316] border border-white/5 hover:border-white/12 transition-all duration-300 flex flex-col h-full"
       style={{
         boxShadow: hovered
           ? `0 12px 40px rgba(0,0,0,0.5), inset 0 0 30px ${project.glowColor}`
@@ -305,9 +386,44 @@ export function SmallProjectCard({ project, delay = 0 }) {
       {/* Cover Art (smaller) */}
       <CoverArt project={project} height="h-28" />
 
-      {/* Badges */}
+      {/* Badges & Actions */}
       <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
         <GenreBadge genre={project.genre} />
+      </div>
+
+      <div className="absolute top-2.5 right-2.5 z-10">
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: hovered ? 1 : 0, scale: hovered ? 1 : 0.8 }}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-7 h-7 rounded-full bg-red-500/10 hover:bg-red-500/20 backdrop-blur-sm border border-red-500/20 flex items-center justify-center text-red-500 transition-all"
+            >
+              {isDeleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+            </motion.button>
+          </AlertDialogTrigger>
+          <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Manuscript?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently remove "<span className="text-white">{project.title}</span>". This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction 
+                variant="destructive"
+                disabled={isDeleting}
+                onClick={handleDelete}
+              >
+                {isDeleting ? "Deleting..." : "Delete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
 
       {/* Content */}
@@ -336,6 +452,7 @@ export function SmallProjectCard({ project, delay = 0 }) {
   );
 }
 
+
 // ─── Initialize / CTA Card ───────────────────────────────────────────────────
 export function InitializeCard({ delay = 0 }) {
   return (
@@ -345,7 +462,7 @@ export function InitializeCard({ delay = 0 }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: "easeOut", delay }}
     >
-      <Link href="/editor">
+      <Link href="/project">
         <div className="group relative cursor-pointer rounded-2xl border border-dashed border-white/10 hover:border-primary/30 bg-[#0e0e11] hover:bg-primary/5 transition-all duration-300 flex flex-col items-center justify-center p-6 h-full min-h-[140px]">
           {/* Glowing plus */}
           <div className="w-10 h-10 rounded-full border border-white/10 group-hover:border-primary/40 flex items-center justify-center mb-3 group-hover:shadow-[0_0_20px_rgba(186,158,255,0.2)] transition-all duration-300">

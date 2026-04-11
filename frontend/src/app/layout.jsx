@@ -1,6 +1,7 @@
 import { Inter, Manrope, Outfit } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "../hooks/theme-provider";
+import { AuthProvider } from "@/features/common/AuthProvider";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -31,13 +32,15 @@ export default function RootLayout({ children }) {
     >
       <head />
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="dark"
-          forcedTheme="dark"
-        >
-          {children}
-        </ThemeProvider>
+        <AuthProvider>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="dark"
+            forcedTheme="dark"
+          >
+            {children}
+          </ThemeProvider>
+        </AuthProvider>
       </body>
     </html>
   );

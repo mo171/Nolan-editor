@@ -13,6 +13,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
 const phrases = [
   "Structured Storytelling.",
@@ -128,17 +129,21 @@ export function HeroSection() {
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-          <Button className="h-14 px-8 rounded-full bg-gradient-to-r from-primary to-[#69daff] text-black font-bold text-lg shadow-[0_0_20px_rgba(186,158,255,0.3)] hover:shadow-[0_0_40px_rgba(186,158,255,0.5)] hover:-translate-y-1 hover:scale-105 active:scale-95 transition-all duration-300 flex items-center gap-2 border-none">
-            Start Writing
-            <ArrowUpRight size={20} />
-          </Button>
-          <Button
-            variant="outline"
-            className="h-14 px-8 rounded-full border-white/20 bg-white/10 hover:bg-white/20 hover:text-white hover:-translate-y-1 hover:scale-105 active:scale-95 transition-all duration-300 font-semibold flex items-center gap-2 text-lg shadow-xl backdrop-blur-sm"
-          >
-            <PlayCircle size={20} />
-            View Demo
-          </Button>
+          <Link href="/signup">
+            <Button className="h-14 px-8 rounded-full bg-gradient-to-r from-primary to-[#69daff] text-black font-bold text-lg shadow-[0_0_20px_rgba(186,158,255,0.3)] hover:shadow-[0_0_40px_rgba(186,158,255,0.5)] hover:-translate-y-1 hover:scale-105 active:scale-95 transition-all duration-300 flex items-center gap-2 border-none">
+              Start Writing
+              <ArrowUpRight size={20} />
+            </Button>
+          </Link>
+          <Link href="/login">
+            <Button
+              variant="outline"
+              className="h-14 px-8 rounded-full border-white/20 bg-white/10 hover:bg-white/20 hover:text-white hover:-translate-y-1 hover:scale-105 active:scale-95 transition-all duration-300 font-semibold flex items-center gap-2 text-lg shadow-xl backdrop-blur-sm"
+            >
+              <PlayCircle size={20} />
+              Sign In
+            </Button>
+          </Link>
         </div>
       </motion.div>
 

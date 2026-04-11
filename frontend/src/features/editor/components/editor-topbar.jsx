@@ -92,7 +92,8 @@ export function EditorTopbar() {
     saved: { color: "text-emerald-400", label: "Saved", dot: "bg-emerald-400" },
     saving: { color: "text-amber-400", label: "Saving...", dot: "bg-amber-400" },
     unsaved: { color: "text-white/40", label: "Unsaved", dot: "bg-white/30" },
-  }[saveStatus];
+    error: { color: "text-red-400", label: "Save Failed", dot: "bg-red-400" },
+  }[saveStatus] || { color: "text-white/40", label: "Unknown", dot: "bg-white/30" };
 
   return (
     <header className="flex items-center h-14 px-4 gap-3 bg-[#0e0e11] border-b border-white/5 flex-shrink-0 z-40">

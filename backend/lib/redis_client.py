@@ -109,6 +109,13 @@ class RedisCache:
     async def set_dna(self, project_id: str, dna: dict):
         await self.set_json(f"project:{project_id}:dna", dna, TTL_DNA)
 
+    async def invalidate_dna(self, project_id: str):
+        await self.delete(f"project:{project_id}:dna")
+
+    async def invalidate_user_projects(self, user_id: str):
+        """Invalidate the user's project list cache (call after create/delete)."""
+        await self.delete(f"user_projects:{user_id}")
+
     async def get_character_card(self, project_id: str, name: str) -> dict | None:
         key = f"character:{project_id}:{name.lower()}"
         return await self.get_json(key)

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useCallback, useState, useRef } from "react";
+import { useParams } from "next/navigation";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
@@ -23,12 +24,36 @@ import { useEditorContext } from "@/features/editor/context/editor-context";
 import { EditorFormatToolbar } from "./editor-format-toolbar";
 import { NarrativeCritique } from "../extensions/narrative-critique";
 import { GhostText } from "../extensions/ghost-text";
+import { useGhostText } from "@/hooks/useGhostText";
 
 export function TiptapEditor({ onEditorReady }) {
-  const { activeScene, updateSceneContent, activeMode } = useEditorContext();
+  const params = useParams();
+  const projectId = params?.projectId;
+
+  const { activeScene, updateSceneContent, updateSceneMetadata, activeMode } = useEditorContext();
   const [hoveredCritique, setHoveredCritique] = useState(null);
   const hideTimeoutRef = useRef(null);
   const ghostTimerRef = useRef(null);
+  const editorRef = useRef(null);
+
+  const onToken = useCallback((text) => {
+    if (editorRef.current) {
+      editorRef.current.commands.setGhostText(text);
+    }
+  }, []);
+
+  const onAnalysisReady = useCallback((data) => {
+    if (activeScene?.id && updateSceneMetadata) {
+      updateSceneMetadata(activeScene.id, data);
+    }
+  }, [activeScene?.id, updateSceneMetadata]);
+
+  const ghostOptions = React.useMemo(() => ({
+    onToken,
+    onAnalysisReady
+  }), [onToken, onAnalysisReady]);
+
+  const { requestGhost, clearGhost } = useGhostText(projectId, ghostOptions);
 
   const handleUpdate = useCallback(
     ({ editor }) => {
@@ -36,17 +61,25 @@ export function TiptapEditor({ onEditorReady }) {
         updateSceneContent(activeScene.id, editor.getHTML());
       }
       
+      // Stop any ongoing ghost stream if user types something
+      clearGhost();
+      
       // Ghostwriter Logic: Start Zen timer on inactivity
       if (ghostTimerRef.current) clearTimeout(ghostTimerRef.current);
       if (activeMode === "Creative") {
         ghostTimerRef.current = setTimeout(() => {
-          editor.commands.setGhostText("...and then, in the silence of the den,\na new shadow moved against the light.");
-        }, 5000);
+          // Send last ~30 words to context
+          const text = editor.getText();
+          const words = text.split(/\s+/);
+          const cursorText = words.slice(-30).join(" ");
+          
+          requestGhost(cursorText, activeScene?.id);
+        }, 3500); // 3.5s inactivity
       } else {
         editor.commands.clearGhostText();
       }
     },
-    [activeScene?.id, updateSceneContent, activeMode]
+    [activeScene?.id, updateSceneContent, activeMode, requestGhost, clearGhost]
   );
 
   const editor = useEditor({
@@ -78,6 +111,11 @@ export function TiptapEditor({ onEditorReady }) {
     onUpdate: handleUpdate,
   });
 
+  // Keep a ref of the editor for callbacks that need stable closure without re-renders
+  useEffect(() => {
+    editorRef.current = editor;
+  }, [editor]);
+
   // Expose editor to parent for character count etc.
   useEffect(() => {
     if (editor && onEditorReady) onEditorReady(editor);
@@ -88,6 +126,9 @@ export function TiptapEditor({ onEditorReady }) {
     if (editor && activeScene?.content !== undefined) {
       const current = editor.getHTML();
       if (current !== activeScene.content) {
+        // When scene switches, clear ghost and populate text
+        clearGhost();
+        editor.commands.clearGhostText();
         editor.commands.setContent(activeScene.content, false);
       }
     }

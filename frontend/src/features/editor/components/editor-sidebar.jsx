@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronRight,
@@ -15,6 +15,9 @@ import {
   FolderOpen,
 } from "lucide-react";
 import { useEditorContext } from "@/features/editor/context/editor-context";
+import { useParams } from "next/navigation";
+import { useCharacters } from "@/hooks/useCharacters";
+import { useTimeline } from "@/hooks/useTimeline";
 
 function SceneItem({ scene, chapter, isActive }) {
   const { setActiveScene, updateSceneTitle } = useEditorContext();
@@ -181,25 +184,129 @@ const PANELS = [
   { id: "timeline", icon: Clock, label: "Timeline" },
 ];
 
-function CharactersPanel() {
-  const characters = [
-    { name: "The Hare", role: "Protagonist", initials: "TH", color: "from-[#ba9eff] to-[#69daff]" },
-    { name: "The Lion", role: "Antagonist", initials: "TL", color: "from-amber-400 to-orange-500" },
-    { name: "Forest Animals", role: "Supporting", initials: "FA", color: "from-emerald-400 to-teal-500" },
-  ];
+// ─── Emotion dot color ───────────────────────────────────────────────────────
+const EMOTION_COLORS = {
+  joy: "bg-yellow-400", sadness: "bg-blue-400", anger: "bg-red-500",
+  fear: "bg-violet-400", surprise: "bg-cyan-400", disgust: "bg-green-500", neutral: "bg-white/30",
+};
+
+function CharacterCard({ c, isExtracted }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const getInitials = (name) => {
+    if (!name) return "?";
+    const parts = name.split(" ");
+    return parts.length > 1 ? parts[0][0] + parts[1][0] : parts[0].slice(0, 2);
+  };
+
+  const getGradient = (name) => {
+    const g = ["from-[#ba9eff] to-[#69daff]","from-amber-400 to-orange-500","from-emerald-400 to-teal-500","from-rose-400 to-red-500","from-blue-400 to-indigo-500"];
+    return !name ? g[0] : g[name.charCodeAt(0) % g.length];
+  };
+
+  const traits = c.traits || [];
+  const emotionKey = (c.last_known_emotion || "neutral").toLowerCase();
+  const emotionDot = EMOTION_COLORS[emotionKey] || EMOTION_COLORS.neutral;
+  const hasDetails = c.description || traits.length > 0 || c.arc_summary || c.last_known_emotion;
+
   return (
-    <div className="space-y-2 p-2">
-      {characters.map((c) => (
-        <div key={c.name} className="flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-white/5 cursor-pointer group transition-colors">
-          <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${c.color} flex items-center justify-center text-black text-xs font-bold flex-shrink-0 shadow-lg shadow-black/20`}>
-            {c.initials}
+    <div
+      className="rounded-xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/5 mb-1.5 transition-all duration-200 overflow-hidden cursor-pointer"
+      onClick={() => hasDetails && setExpanded((e) => !e)}
+    >
+      <div className="flex items-center gap-3 px-3 py-2.5">
+        <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getGradient(c.name)} flex items-center justify-center text-black text-[10px] font-bold flex-shrink-0 shadow-md`}>
+          {getInitials(c.name).toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-semibold text-white/85 truncate">{c.name}</span>
+            {isExtracted && c.last_known_emotion && (
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${emotionDot}`} title={c.last_known_emotion} />
+            )}
           </div>
-          <div>
-            <div className="text-sm font-semibold text-white/80 group-hover:text-white transition-colors">{c.name}</div>
-            <div className="text-[11px] text-white/30">{c.role}</div>
+          <div className="text-[10px] text-white/35 truncate">
+            {c.role || (c.total_mentions ? `${c.total_mentions} mentions` : "Character")}
           </div>
         </div>
-      ))}
+        {hasDetails && (
+          <div className={`text-white/20 transition-transform duration-200 flex-shrink-0 ${expanded ? "rotate-90" : ""}`}>
+            <ChevronRight size={12} />
+          </div>
+        )}
+      </div>
+      <AnimatePresence initial={false}>
+        {expanded && hasDetails && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="px-3 pb-3 space-y-2 border-t border-white/5 pt-2">
+              {c.description && (
+                <p className="text-[11px] text-white/55 leading-relaxed">{c.description}</p>
+              )}
+              {traits.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {traits.slice(0, 5).map((t) => (
+                    <span key={t} className="px-2 py-0.5 bg-primary/10 text-primary/70 rounded-full text-[9px] font-semibold border border-primary/15">{t}</span>
+                  ))}
+                  {traits.length > 5 && <span className="px-2 py-0.5 bg-white/5 text-white/30 rounded-full text-[9px]">+{traits.length - 5}</span>}
+                </div>
+              )}
+              {c.arc_summary && (
+                <p className="text-[10px] text-white/35 italic leading-relaxed border-l border-primary/20 pl-2">{c.arc_summary}</p>
+              )}
+              {(c.last_known_location || c.last_known_emotion) && (
+                <div className="flex flex-wrap gap-2 text-[9px] text-white/30">
+                  {c.last_known_location && <span>📍 {c.last_known_location}</span>}
+                  {c.last_known_emotion && <span className="capitalize">🎭 {c.last_known_emotion}</span>}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function CharactersPanel() {
+  const params = useParams();
+  const projectId = params?.projectId;
+  const { projectCharacters, extractedCharacters, isLoading } = useCharacters(projectId);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2 p-2">
+        <div className="h-14 bg-white/5 rounded-xl animate-pulse" />
+        <div className="h-14 bg-white/5 rounded-xl animate-pulse" />
+        <div className="h-14 bg-white/5 rounded-xl animate-pulse" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-2">
+      {projectCharacters?.length > 0 && (
+        <div className="mb-3">
+          <h3 className="text-[10px] uppercase font-bold text-white/40 mb-2 px-1">Main Cast</h3>
+          {projectCharacters.map((c) => <CharacterCard key={c.id || c.name} c={c} isExtracted={false} />)}
+        </div>
+      )}
+      {extractedCharacters?.length > 0 && (
+        <div className="mb-3">
+          <h3 className="text-[10px] uppercase font-bold text-white/40 mb-2 px-1">Discovered</h3>
+          {extractedCharacters.map((c) => <CharacterCard key={c.id || c.name} c={c} isExtracted={true} />)}
+        </div>
+      )}
+      {(!projectCharacters?.length && !extractedCharacters?.length) && (
+        <div className="text-center py-6 text-white/30 text-xs">
+          No characters yet. Start typing to discover them.
+        </div>
+      )}
       <button className="flex items-center gap-2.5 w-full px-4 py-3 text-xs font-medium text-white/25 hover:text-primary/70 transition-all rounded-xl hover:bg-white/5 mt-2">
         <Plus size={14} /> Add Character
       </button>
@@ -226,27 +333,70 @@ function LorePanel() {
 }
 
 function TimelinePanel() {
-  const events = [
-    { label: "Lion's Decree", time: "Day 1", color: "bg-red-400" },
-    { label: "Animals Begin Visits", time: "Day 2-30", color: "bg-amber-400" },
-    { label: "Hare's Turn", time: "Day 31", color: "bg-primary" },
-    { label: "Hare's Plan", time: "Day 31 Late", color: "bg-[#69daff]" },
-    { label: "Lion Defeated", time: "Day 32", color: "bg-emerald-400" },
-  ];
+  const params = useParams();
+  const projectId = params?.projectId;
+  const { projectCharacters, extractedCharacters } = useCharacters(projectId);
+  const { timeline, fetchCharacterTimeline, isLoading } = useTimeline(projectId);
+  const [selectedChar, setSelectedChar] = useState(null);
+
+  const allChars = [...(projectCharacters || []), ...(extractedCharacters || [])];
+
+  useEffect(() => {
+    if (!selectedChar && allChars.length > 0) {
+      setSelectedChar(allChars[0].name);
+    }
+  }, [allChars, selectedChar]);
+
+  useEffect(() => {
+    if (selectedChar) {
+      fetchCharacterTimeline(selectedChar);
+    }
+  }, [selectedChar, fetchCharacterTimeline]);
+
   return (
-    <div className="relative p-3">
-      <div className="absolute left-7 top-8 bottom-4 w-px bg-white/10" />
-      <div className="space-y-4">
-        {events.map((e) => (
-          <div key={e.label} className="flex items-start gap-3 relative">
-            <div className={`w-2.5 h-2.5 rounded-full ${e.color} flex-shrink-0 mt-0.5 z-10 ring-2 ring-[#0e0e11]`} />
-            <div>
-              <div className="text-xs font-semibold text-white/80">{e.label}</div>
-              <div className="text-[10px] text-white/30">{e.time}</div>
-            </div>
+    <div className="p-3">
+      {allChars.length > 0 ? (
+        <select 
+          value={selectedChar || ""}
+          onChange={(e) => setSelectedChar(e.target.value)}
+          className="w-full bg-white/5 border border-white/10 rounded-lg text-xs p-2 mb-4 text-white/80 outline-none"
+        >
+          {allChars.map(c => (
+            <option key={c.name} value={c.name}>{c.name}</option>
+          ))}
+        </select>
+      ) : (
+        <div className="text-white/30 text-xs text-center pb-4">
+          Add characters to see timelines.
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="space-y-4 px-2">
+          <div className="h-4 w-2/3 bg-white/5 rounded animate-pulse" />
+          <div className="h-4 w-full bg-white/5 rounded animate-pulse" />
+          <div className="h-4 w-5/6 bg-white/5 rounded animate-pulse" />
+        </div>
+      ) : timeline?.length > 0 ? (
+        <div className="relative pl-1">
+          <div className="absolute left-2.5 top-2 bottom-4 w-px bg-white/10" />
+          <div className="space-y-4">
+            {timeline.map((scene, idx) => (
+              <div key={scene.id || idx} className="flex items-start gap-4 relative">
+                <div className={`w-2 h-2 rounded-full bg-primary flex-shrink-0 mt-1 z-10 ring-4 ring-[#0c0c0f]`} />
+                <div>
+                  <div className="text-xs font-semibold text-white/80">{scene.title}</div>
+                  <div className="text-[10px] text-white/30">Chapter {scene.chapter_id?.slice(-4) || "?"}</div>
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+      ) : selectedChar ? (
+        <div className="text-white/30 text-[10px] text-center italic">
+          No narrative events found for this character yet.
+        </div>
+      ) : null}
     </div>
   );
 }

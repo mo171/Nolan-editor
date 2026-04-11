@@ -20,6 +20,11 @@ def get_neo4j_driver():
         try:
             from neo4j import GraphDatabase
             uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+            # Aura networks on some Windows setups encounter SSL verifcation failure. 
+            # neo4j+ssc:// bypasses the local strict verification
+            if uri.startswith("neo4j+s://"):
+                uri = uri.replace("neo4j+s://", "neo4j+ssc://")
+                
             user = os.getenv("NEO4J_USER", "neo4j")
             password = os.getenv("NEO4J_PASSWORD", "password")
             

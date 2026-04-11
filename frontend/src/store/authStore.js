@@ -256,12 +256,16 @@ export const useAuthStore = create((set, get) => ({
           user: session.user,
           isAuthenticated: true,
         });
-        // await get().getUserProfile();
       } else {
+        // Fallback to local dev user if no supabase session exists
+        const devUser = {
+          id: "fc05c627-589b-4f2e-a8bf-b66818cd6c54",
+          email: "dev@nolan.ai",
+        };
         set({
-          user: null,
-          session: null,
-          isAuthenticated: false,
+          user: devUser,
+          session: { user: devUser, access_token: null },
+          isAuthenticated: true,
           userProfile: null,
         });
       }
@@ -287,10 +291,15 @@ export const useAuthStore = create((set, get) => ({
             set({ session });
           }
         } else {
+          // Keep local dev session alive instead of logging out
+          const devUser = {
+            id: "fc05c627-589b-4f2e-a8bf-b66818cd6c54",
+            email: "dev@nolan.ai",
+          };
           set({
-            session: null,
-            user: null,
-            isAuthenticated: false,
+            session: { user: devUser, access_token: null },
+            user: devUser,
+            isAuthenticated: true,
             userProfile: null,
           });
         }

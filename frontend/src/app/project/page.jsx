@@ -2,6 +2,7 @@
 
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Loader2 } from "lucide-react";
 import { ProjectProvider, useProject } from "@/features/project/context/project-context";
 import { ToastStack } from "@/features/project/components/toast-stack";
 import { ProjectSidebar } from "@/features/project/components/project-sidebar";
@@ -49,8 +50,34 @@ function CurrentStep() {
 
 // ─── Main Content Area ────────────────────────────────────────────────────────
 function ProjectContent() {
+  const { submitStatus, isUploading } = useProject();
+
   return (
-    <div className="flex flex-col flex-1 h-full min-w-0 overflow-hidden bg-[#0a0a0c]">
+    <div className="flex flex-col flex-1 h-full min-w-0 overflow-hidden bg-[#0a0a0c] relative">
+      {/* Loading Overlays */}
+      <AnimatePresence>
+        {(submitStatus === "submitting" || isUploading) && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-[#0e0e11]/90 backdrop-blur-md"
+          >
+            <div className="flex flex-col items-center p-8 rounded-2xl bg-[#131316] border border-white/10 shadow-[0_0_50px_rgba(186,158,255,0.15)]">
+              <Loader2 className="animate-spin text-primary w-12 h-12 mb-4" />
+              <h2 className="text-xl font-bold font-heading text-white mb-2">
+                {isUploading ? "Embedding Narrative DNA..." : "Initializing Universe..."}
+              </h2>
+              <p className="text-sm text-white/50 text-center max-w-[280px]">
+                {isUploading
+                  ? "Our AI is processing your reference material. This may take a moment."
+                  : "Weaving your parameters into a multi-dimensional story graph."}
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Top Navigation */}
       <ProjectTopbar />
 

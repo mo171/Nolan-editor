@@ -99,7 +99,7 @@ function ViewToggle() {
 
 // ─── Project Grid ─────────────────────────────────────────────────────────────
 export function ProjectGrid() {
-  const { filteredProjects } = useDashboard();
+  const { filteredProjects, isLoading } = useDashboard();
 
   const featured = filteredProjects.find((p) => p.featured);
   const rest = filteredProjects.filter((p) => !p.featured);
@@ -124,7 +124,13 @@ export function ProjectGrid() {
         </div>
       </div>
 
-      {isEmpty ? (
+      {isLoading ? (
+        <div className="grid grid-cols-3 gap-4 auto-rows-min animate-pulse">
+          <div className="col-span-2 row-span-2 h-[260px] bg-white/5 rounded-2xl border border-white/5" />
+          <div className="col-span-1 h-32 bg-white/5 rounded-2xl border border-white/5" />
+          <div className="col-span-1 h-32 bg-white/5 rounded-2xl border border-white/5" />
+        </div>
+      ) : isEmpty ? (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -135,6 +141,9 @@ export function ProjectGrid() {
           </div>
           <p className="text-white/50 font-semibold text-sm mb-1">No projects match your filters</p>
           <p className="text-white/25 text-xs">Try adjusting your genre or status filters</p>
+          <div className="mt-6 w-64 max-w-full">
+            <InitializeCard delay={0.15} />
+          </div>
         </motion.div>
       ) : (
         /* Asymmetric masonry layout matching screenshot */
