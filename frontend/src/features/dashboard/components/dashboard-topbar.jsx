@@ -57,7 +57,7 @@ export function DashboardTopbar() {
 
         {/* New Project */}
         <Link
-          href="/editor"
+          href="/project"
           id="new-project-btn"
           className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary to-[#69daff] text-black text-sm font-bold rounded-xl hover:opacity-90 hover:scale-105 hover:shadow-[0_0_20px_rgba(186,158,255,0.35)] active:scale-95 transition-all duration-200"
         >

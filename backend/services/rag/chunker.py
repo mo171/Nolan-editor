@@ -32,47 +32,28 @@ def chunk_scene(
     if not plain_text or not plain_text.strip():
         return []
 
-    paragraphs = split_into_paragraphs(plain_text)
+    words = plain_text.split()
     chunks = []
     
-    current_chunk_text = ""
-
-    for i, para in enumerate(paragraphs):
-        para = para.strip()
-        if not para:
-            continue
-            
-        if not current_chunk_text:
-            current_chunk_text = para
-        else:
-            # Simple heuristic: if chunk is getting too big (> 1000 chars), split it.
-            # Otherwise, append paragraph to current chunk.
-            if len(current_chunk_text) + len(para) > 1000:
-                chunks.append({
-                    "text": current_chunk_text,
-                    "metadata": {
-                        "project_id": project_id,
-                        "scene_id": scene_id,
-                        "chunk_index": len(chunks),
-                        "is_dna_source": False, # DNA is handled separately
-                        **scene_metadata
-                    }
-                })
-                current_chunk_text = para
-            else:
-                current_chunk_text += "\n\n" + para
-
-    # Grab the last chunk
-    if current_chunk_text:
+    CHUNK_SIZE = 400
+    OVERLAP = 80
+    
+    i = 0
+    while i < len(words):
+        chunk_words = words[i:i + CHUNK_SIZE]
+        current_chunk_text = " ".join(chunk_words)
+        
         chunks.append({
             "text": current_chunk_text,
             "metadata": {
                 "project_id": project_id,
                 "scene_id": scene_id,
                 "chunk_index": len(chunks),
-                "is_dna_source": False,
+                "is_dna_source": False, # DNA is handled separately
                 **scene_metadata
             }
         })
+        
+        i += (CHUNK_SIZE - OVERLAP)
 
     return chunks

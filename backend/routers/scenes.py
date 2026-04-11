@@ -13,6 +13,7 @@ Low latency design:
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from typing import Optional
+import uuid
 import logging
 
 from lib.supabase import supabase
@@ -99,6 +100,12 @@ async def save_scene_content(scene_id: str, payload: SceneContentUpdate):
     Returns immediately — user is never blocked.
     """
     try:
+        # Validate UUID to prevent DB syntax errors
+        try:
+            uuid.UUID(scene_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid scene ID format: {scene_id}")
+
         plain_text = strip_html(payload.content)
         word_count = count_words(payload.content)
 
@@ -117,10 +124,15 @@ async def save_scene_content(scene_id: str, payload: SceneContentUpdate):
         await cache.invalidate_scene(scene_id)
 
         # 🔥 Fire NLP pipeline — does NOT block the response
-        fire_and_forget(
-            process_scene_pipeline(scene_id, payload.project_id),
-            task_name=f"nlp_scene_{scene_id}"
-        )
+        # Debounce: only trigger the massive pipeline if we have over 5 words
+        # to prevent burning API/CPU on every single word typed.
+        if word_count > 5:
+            fire_and_forget(
+                process_scene_pipeline(scene_id, payload.project_id),
+                task_name=f"nlp_scene_{scene_id}"
+            )
+        else:
+            logger.info(f"[Scenes] Skipped NLP for scene={scene_id} — word_count ({word_count}) < 50")
 
         logger.info(f"[Scenes] Saved scene={scene_id} words={word_count}, NLP queued")
 

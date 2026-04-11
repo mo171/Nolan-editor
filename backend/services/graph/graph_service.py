@@ -15,46 +15,114 @@ from services.nlp.entity_extractor import ExtractionResult
 logger = logging.getLogger("nolan.graph.graph_service")
 
 
-async def update_graph(project_id: str, scene_id: str, nlp_result: ExtractionResult):
+async def update_graph(project_id: str, scene_id: str, nlp_result: ExtractionResult, dominant_emotion: str = None):
     """
     Called by scene_processor.py after NLP extraction.
     Creates or updates Scene, Character nodes and their relationships.
+    Tracks Social Graph (co-occurrence) and Action Graph (SVO).
     """
     driver = get_neo4j_driver()
     if not driver:
         logger.warning("[Graph] Neo4j not connected. Skipping graph update.")
         return
 
-    # A simple single-transaction cypher to ensure nodes exist and link them
-    cypher = """
-    // 1. Merge the Scene
+    # 1. Base Scene and Character Appearance
+    cypher_base = """
     MERGE (s:Scene {id: $scene_id})
-    SET s.project_id = $project_id
+    SET s.project_id = $project_id,
+        s.emotion = $emotion
 
-    // 2. Unwind characters and link to Scene
     WITH s
     UNWIND $characters AS char_name
     MERGE (c:Character {name: char_name, project_id: $project_id})
-    MERGE (c)-[:APPEARS_IN]->(s)
+    MERGE (c)-[rel:APPEARS_IN]->(s)
+    SET rel.emotion = $emotion
     """
-    
-    # We can also add locations if we want
+
+    # 2. Social Graph: Character co-occurrence (Mutual Interaction)
+    cypher_social = """
+    MATCH (s:Scene {id: $scene_id})
+    UNWIND $characters AS char1
+    UNWIND $characters AS char2
+    WITH s, char1, char2
+    WHERE char1 < char2  // Unique pairs only
+    MATCH (c1:Character {name: char1, project_id: $project_id})
+    MATCH (c2:Character {name: char2, project_id: $project_id})
+    MERGE (c1)-[rel:INTERACTS_WITH]-(c2)
+    ON MATCH SET rel.weight = coalesce(rel.weight, 0) + 1
+    ON CREATE SET rel.weight = 1
+    SET rel.last_emotion = $emotion, 
+        rel.last_scene_id = $scene_id
+    """
+
+    # 3. Action Graph: Character-to-Character SVO Actions
+    cypher_action = """
+    UNWIND $actions AS action_data
+    MATCH (c1:Character {name: action_data.subject, project_id: $project_id})
+    MATCH (c2:Character {name: action_data.obj, project_id: $project_id})
+    MERGE (c1)-[rel:DID_ACTION {action: action_data.verb, scene_id: $scene_id}]->(c2)
+    SET rel.sentence = action_data.sentence,
+        rel.emotion = $emotion
+    """
+
     cypher_locs = """
+    MATCH (s:Scene {id: $scene_id})
     UNWIND $locations AS loc_name
     MERGE (l:Location {name: loc_name, project_id: $project_id})
     MERGE (s)-[:TAKES_PLACE_AT]->(l)
     """
 
     try:
-        # We can implement a more complex merge, but keeping it simple for Phase 6 stub
+        # Prepare actions: only those where both subject and object are in the character list
+        char_set = {c.lower() for c in nlp_result.scene_characters}
+        actions = []
+        for svo in nlp_result.svo_triples:
+            # We use fuzzy matching/canonical mapping here? 
+            # For now, simplistic: if subject and object are known characters
+            if svo.subject and svo.obj and svo.subject.lower() in char_set and svo.obj.lower() in char_set:
+                # Need to map back to original casing used in nlp_result.scene_characters for MATCH to work
+                # or rely on Neo4j name being exact. Logic: find the name in characters list that matches
+                sub_name = next((c for c in nlp_result.scene_characters if c.lower() == svo.subject.lower()), svo.subject)
+                obj_name = next((c for c in nlp_result.scene_characters if c.lower() == svo.obj.lower()), svo.obj)
+                
+                actions.append({
+                    "subject": sub_name,
+                    "verb": svo.verb,
+                    "obj": obj_name,
+                    "sentence": svo.sentence
+                })
+
         with driver.session() as session:
+            # Run Base
             session.run(
-                cypher, 
+                cypher_base, 
                 scene_id=scene_id, 
                 project_id=project_id, 
-                characters=nlp_result.scene_characters
+                characters=nlp_result.scene_characters,
+                emotion=dominant_emotion or "neutral"
             )
+
+            # Run Social if > 1 character
+            if len(nlp_result.scene_characters) > 1:
+                session.run(
+                    cypher_social,
+                    scene_id=scene_id,
+                    project_id=project_id,
+                    characters=nlp_result.scene_characters,
+                    emotion=dominant_emotion or "neutral"
+                )
+
+            # Run Actions if any
+            if actions:
+                session.run(
+                    cypher_action,
+                    project_id=project_id,
+                    scene_id=scene_id,
+                    actions=actions,
+                    emotion=dominant_emotion or "neutral"
+                )
             
+            # Run Locations
             if nlp_result.scene_locations:
                 session.run(
                     cypher_locs, 
@@ -64,6 +132,7 @@ async def update_graph(project_id: str, scene_id: str, nlp_result: ExtractionRes
                 )
 
         logger.info(f"[Graph] Updated graph for scene={scene_id} with {len(nlp_result.scene_characters)} chars")
+
     except Exception as e:
         logger.error(f"[Graph] Neo4j update failed for scene {scene_id}: {e}")
 
@@ -88,3 +157,47 @@ async def get_character_timeline(project_id: str, character_name: str) -> list:
     except Exception as e:
         logger.error(f"[Graph] Neo4j timeline failed: {e}")
         return []
+
+async def init_project_graph(project_id: str, characters: list):
+    """
+    Called upon project creation to seed the initial cast list into Neo4j.
+    Ensures that user-defined characters exist in the graph immediately.
+    """
+    if not characters:
+        return
+
+    driver = get_neo4j_driver()
+    if not driver:
+        logger.warning("[Graph] Neo4j not connected. Skipping project graph init.")
+        return
+
+    cypher = """
+    UNWIND $characters AS char
+    MERGE (c:Character {name: char.name, project_id: $project_id})
+    SET c.role = char.role,
+        c.description = char.description,
+        c.traits = char.traits,
+        c.user_defined = true
+    """
+
+    try:
+        with driver.session() as session:
+            char_list = []
+            for c in characters:
+                if hasattr(c, "model_dump"):
+                    c_dict = c.model_dump()
+                elif hasattr(c, "dict"):
+                    c_dict = c.dict()
+                else:
+                    c_dict = c if isinstance(c, dict) else {}
+
+                char_list.append({
+                    "name": c_dict.get("name", ""),
+                    "role": c_dict.get("role", ""),
+                    "description": c_dict.get("description", ""),
+                    "traits": c_dict.get("traits", [])
+                })
+            session.run(cypher, project_id=project_id, characters=char_list)
+        logger.info(f"[Graph] Initialized graph for project={project_id} with {len(characters)} characters")
+    except Exception as e:
+        logger.error(f"[Graph] Neo4j init failed for project {project_id}: {e}")
