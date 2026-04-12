@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useEditorContext } from "@/features/editor/context/editor-context";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 
 const GENRES = ["Thriller", "Drama", "Sci-Fi", "Fantasy", "Horror", "Romance", "Action", "Mystery"];
 const MODES = ["Creative", "Thinking", "Planning"];
@@ -77,6 +78,9 @@ export function EditorTopbar() {
     updateProjectTitle,
     setActiveMode,
   } = useEditorContext();
+
+  const params = useParams();
+  const projectId = params?.projectId;
 
   const [editingTitle, setEditingTitle] = useState(false);
   const titleRef = useRef(null);
@@ -191,9 +195,9 @@ export function EditorTopbar() {
           <RefreshCw size={15} />
         </button>
 
-        <button className="p-1.5 text-white/40 hover:text-white/70 hover:bg-white/5 rounded-lg transition-all">
+        <Link href={`/editor/${projectId}/comic`} className="p-1.5 text-white/40 hover:text-white/70 hover:bg-white/5 hover:text-[#ba9eff] rounded-lg transition-all" title="Generate Comic">
           <Download size={15} />
-        </button>
+        </Link>
 
         {/* Avatar */}
         <div className="w-7 h-7 rounded-full bg-gradient-to-br from-primary to-[#69daff] flex items-center justify-center text-black text-xs font-bold flex-shrink-0">
