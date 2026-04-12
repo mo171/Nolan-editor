@@ -192,7 +192,7 @@ async def get_project(project_id: str):
 
         # Fetch chapters + scenes
         ch_res = supabase.table("chapters").select(
-            "id, title, position, scenes(id, title, position, word_count)"
+            "id, title, position, scenes(id, title, position, word_count, content, plain_text)"
         ).eq("project_id", project_id).order("position").execute()
 
         result = {**project, "chapters": ch_res.data or []}

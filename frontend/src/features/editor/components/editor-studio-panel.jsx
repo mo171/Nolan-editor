@@ -14,6 +14,11 @@ import {
   Mic,
   Network,
   Radio,
+  X,
+  Check,
+  AlertCircle,
+  Lightbulb,
+  ShieldAlert
 } from "lucide-react";
 import { useEditorContext } from "@/features/editor/context/editor-context";
 
@@ -102,7 +107,21 @@ function StudioCard({ item }) {
 }
 
 export function EditorStudioPanel() {
-  const { studioPanelOpen, setStudioPanelOpen, activeMode } = useEditorContext();
+  const { studioPanelOpen, setStudioPanelOpen, activeMode, activeSuggestion, setActiveSuggestion } = useEditorContext();
+
+  // Helper to map linter types to colors/icons
+  const getLinterConfig = (type) => {
+    switch (type) {
+      case "spelling":
+        return { icon: ShieldAlert, color: "text-[#ff4d4f]", bg: "bg-[#ff4d4f]/10", border: "border-[#ff4d4f]/30", glow: "shadow-[#ff4d4f]/20", title: "Grammar & Spelling" };
+      case "inconsistency":
+        return { icon: AlertCircle, color: "text-[#ba9eff]", bg: "bg-[#ba9eff]/10", border: "border-[#ba9eff]/30", glow: "shadow-[#ba9eff]/20", title: "Narrative Drift" };
+      case "creative":
+        return { icon: Lightbulb, color: "text-[#69daff]", bg: "bg-[#69daff]/10", border: "border-[#69daff]/30", glow: "shadow-[#69daff]/20", title: "Creative Insight" };
+      default:
+        return { icon: AlertCircle, color: "text-white/60", bg: "bg-white/10", border: "border-white/20", glow: "shadow-white/10", title: "Suggestion" };
+    }
+  };
 
   return (
     <AnimatePresence initial={false}>
@@ -165,7 +184,82 @@ export function EditorStudioPanel() {
 
           {/* Studio Content */}
           <div className="flex-1 overflow-y-auto px-3 pb-3 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
-            {activeMode === "Thinking" ? (
+            {activeSuggestion ? (
+              <div className="flex flex-col h-full animate-in slide-in-from-right-4 fade-in duration-300">
+                
+                {/* Active Suggestion Header */}
+                <div className="flex items-center justify-between mb-3">
+                  <div className="text-[10px] font-bold text-white/50 uppercase tracking-widest flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Review Fix
+                  </div>
+                  <button 
+                    onClick={() => setActiveSuggestion(null)}
+                    className="p-1 rounded-md text-white/30 hover:bg-white/5 hover:text-white transition-all"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                
+                {(() => {
+                  const config = getLinterConfig(activeSuggestion.type);
+                  const Icon = config.icon;
+                  return (
+                    <div className={`p-4 rounded-xl ${config.bg} border ${config.border} flex flex-col gap-4 shadow-xl ${config.glow}`}>
+                       
+                       <div className="flex items-center gap-2">
+                         <Icon size={14} className={config.color} />
+                         <span className={`text-[11px] font-black uppercase tracking-wider ${config.color}`}>
+                           {config.title}
+                         </span>
+                       </div>
+
+                       <div className="text-[12px] leading-relaxed text-white/80 font-medium">
+                         {activeSuggestion.message}
+                       </div>
+
+                       {activeSuggestion.suggestion && (
+                         <div className="bg-[#0e0e11]/50 border border-white/5 rounded-lg p-3">
+                           <div className="text-[9px] font-bold text-white/30 uppercase mb-1">Proposed Fix:</div>
+                           <div className="text-[11px] italic text-white/90">
+                             "{activeSuggestion.suggestion}"
+                           </div>
+                         </div>
+                       )}
+
+                       <div className="grid grid-cols-2 gap-2 mt-2">
+                          <button 
+                            onClick={() => {
+                               // To actually apply, we trigger a global event or context function that replaces text.
+                               // We'll communicate to Tiptap via custom events or using the global window object for simplicity.
+                               const event = new CustomEvent('nolan-apply-suggestion', { detail: activeSuggestion });
+                               window.dispatchEvent(event);
+                               setActiveSuggestion(null);
+                            }}
+                            className={`flex items-center justify-center gap-2 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold transition-all ${config.border} border`}
+                          >
+                            <Check size={12} />
+                            Apply Fix
+                          </button>
+                          
+                          <button 
+                            onClick={() => {
+                               const event = new CustomEvent('nolan-reject-suggestion', { detail: activeSuggestion });
+                               window.dispatchEvent(event);
+                               setActiveSuggestion(null);
+                            }}
+                            className="flex items-center justify-center gap-2 py-2 rounded-lg bg-[#0e0e11] hover:bg-white/5 border border-white/5 text-white/40 hover:text-white/80 text-[10px] font-bold transition-all"
+                          >
+                            <X size={12} />
+                            Reject
+                          </button>
+                       </div>
+                    </div>
+                  );
+                })()}
+
+              </div>
+            ) : activeMode === "Thinking" ? (
               <div className="flex flex-col h-full">
                 <div className="flex-1 space-y-4">
                   {/* Chat Messages */}

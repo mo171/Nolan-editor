@@ -60,6 +60,7 @@ export function EditorProvider({ children }) {
   const [activePanel, setActivePanel] = useState("chapters"); // 'chapters' | 'characters' | 'lore' | 'timeline'
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [studioPanelOpen, setStudioPanelOpen] = useState(true);
+  const [activeSuggestion, setActiveSuggestion] = useState(null);
   const [isReady, setIsReady] = useState(false);
   
   const initializedRef = useRef(false);
@@ -373,6 +374,10 @@ export function EditorProvider({ children }) {
     setActiveMode,
     reorderScenes,
     updateSceneMetadata,
+    
+    // Linter
+    activeSuggestion,
+    setActiveSuggestion,
   };
 
   if (!isReady) {

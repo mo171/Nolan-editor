@@ -169,6 +169,62 @@ async def get_character_timeline(project_id: str, character_name: str) -> list:
             close_neo4j_driver()
         return []
 
+async def get_linter_context(project_id: str, character_names: list[str]) -> str:
+    """
+    Fetch Character Bible and Social context from Neo4j for the linter prompt.
+    Returns a formatted string describing the characters and their known states.
+    """
+    if not character_names:
+        return ""
+
+    driver = get_neo4j_driver()
+    if not driver:
+        return ""
+
+    # Cypher: Fetch character details + recent social interactions
+    cypher = """
+    MATCH (c:Character {project_id: $project_id})
+    WHERE c.name IN $names
+    OPTIONAL MATCH (c)-[r:INTERACTS_WITH]-(other:Character)
+    WHERE other.name IN $names
+    RETURN c.name AS name, 
+           c.role AS role, 
+           c.description AS description, 
+           c.traits AS traits,
+           collect({other: other.name, emotion: r.last_emotion, weight: r.weight}) AS interactions
+    """
+    
+    try:
+        with driver.session() as session:
+            result = session.run(cypher, project_id=project_id, names=character_names)
+            
+            context_blocks = []
+            for record in result:
+                name = record["name"]
+                traits = ", ".join(record["traits"] or [])
+                role = record["role"] or "Unknown"
+                desc = record["description"] or "No description"
+                
+                block = f"- Character: {name} (Role: {role})\n  Traits: {traits}\n  Description: {desc}"
+                
+                # Add interactions if relevant
+                interactions = [i for i in record["interactions"] if i["other"]]
+                if interactions:
+                    int_str = ", ".join([f"Feeling {i['emotion']} with {i['other']}" for i in interactions])
+                    block += f"\n  Recent Interactions: {int_str}"
+                
+                context_blocks.append(block)
+            
+            if not context_blocks:
+                return ""
+
+            return "## PROJECT KNOWLEDGE GRAPH (Source of Truth)\n" + "\n".join(context_blocks)
+
+    except Exception as e:
+        logger.error(f"[Graph] Context fetch failed: {e}")
+        return ""
+
+
 async def init_project_graph(project_id: str, characters: list):
     """
     Called upon project creation to seed the initial cast list into Neo4j.
