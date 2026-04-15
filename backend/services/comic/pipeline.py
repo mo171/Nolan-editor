@@ -147,10 +147,42 @@ async def generate_comic_for_chapter(project_id: str, chapter_id: str, template_
         # If still no scenes, use a dummy one but don't tie it to a real scene ID
         scenes = [{"id": None, "plain_text": "A solitary hero faces a vast, empty landscape as the wind howls.", "content": ""}]
 
+    # 3. Create a cache dictionary of existing panels mapping scene_id -> panel data
+    existing_panels_cache = {}
+    scene_ids = [s["id"] for s in scenes if s.get("id")]
+    if scene_ids:
+        try:
+            ex_panels_res = supabase.table("comic_panels").select("*").in_("scene_id", scene_ids).execute()
+            for p in (ex_panels_res.data or []):
+                # Pick the most recent if multiple exist, or just use the first found
+                if p["scene_id"] and p.get("image_url"):
+                    existing_panels_cache[p["scene_id"]] = p
+        except Exception as e:
+            logger.error(f"Error fetching existing comic panels: {e}")
+
     panels_data = []
     
     # Process all scenes to create a full comic flow
     for i, scene in enumerate(scenes):
+        scene_id = scene.get("id")
+
+        # Check the cache first!
+        if scene_id and scene_id in existing_panels_cache:
+            p_cached = existing_panels_cache[scene_id]
+            logger.info(f"Reusing cached panel for scene={scene_id}")
+            panels_data.append({
+                "scene_id": scene_id,
+                "panel_index": i + 1,
+                "image_url": p_cached.get("image_url"),
+                "caption_top": p_cached.get("caption_top", ""),
+                "caption_bottom": p_cached.get("caption_bottom", ""),
+                "speech_bubbles": p_cached.get("speech_bubbles", []),
+                "image_prompt": p_cached.get("image_prompt", "")
+            })
+            continue
+
+        # If not cached, go through the full generation pipeline
+        logger.info(f"Generating new panel for scene={scene_id}")
         text = scene.get("plain_text") or scene.get("content") or "Empty scene."
         
         # NLP Structure
@@ -163,7 +195,7 @@ async def generate_comic_for_chapter(project_id: str, chapter_id: str, template_
         image_url = await generate_image(prompt)
         
         panels_data.append({
-            "scene_id": scene.get("id"),
+            "scene_id": scene_id,
             "panel_index": i + 1,
             "image_url": image_url,
             "caption_top": structured.get("caption_top", ""),
@@ -172,18 +204,29 @@ async def generate_comic_for_chapter(project_id: str, chapter_id: str, template_
             "image_prompt": prompt
         })
 
-    # Save to Supabase
     # Resolve the template UUID from the string "single_panel"
     real_template_id = None
     try:
-        # We try to get the template where layout_data->id matches
         tmps = supabase.table("comic_templates").select("id").execute()
         if tmps.data:
             real_template_id = tmps.data[0]["id"] # Fallback to first
     except Exception:
         pass
 
-    # 1. Create comic
+    # Clean up the old comic structure for this chapter if it exists
+    # We do this after generating new images so we don't wipe out the DB until we're ready to commit.
+    if real_chapter_id:
+        try:
+            old_comic_res = supabase.table("comics").select("id").eq("chapter_id", real_chapter_id).execute()
+            if old_comic_res.data:
+                for c in old_comic_res.data:
+                    # Deleting the comic cascades to delete comic_pages and comic_panels
+                    # This removes the old struct while keeping our cached arrays safe in memory
+                    supabase.table("comics").delete().eq("id", c["id"]).execute()
+        except Exception as e:
+            logger.error(f"Error cleaning up old comic: {e}")
+
+    # 1. Create fresh comic
     comic_res = supabase.table("comics").insert({
         "project_id": project_id,
         "chapter_id": real_chapter_id,
