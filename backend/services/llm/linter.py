@@ -3,6 +3,10 @@ import json
 import logging
 from openai import AsyncOpenAI
 import traceback
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from services.nlp.entity_extractor import extract_entities
 from services.graph.graph_service import get_linter_context
 
@@ -26,7 +30,11 @@ async def run_linting_pipeline(text: str, project_id: str) -> list:
     if character_names:
         graph_context = await get_linter_context(project_id, character_names)
 
-    client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    client = AsyncOpenAI(
+        api_key=os.environ.get("OPENROUTER_API_KEY"),
+        base_url="https://openrouter.ai/api/v1"
+    )
+    model = os.getenv("LLM_MODEL", "openai/gpt-4o-mini")
 
     system_prompt = f"""You are Nolan, an elite AI editor. 
 Analyze the provided text snippet and return exactly 1 JSON object with a single root key 'suggestions' which is a list of objects.
@@ -48,7 +56,7 @@ Maximum 3 suggestions. If perfect, return an empty list.
 
     try:
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": system_prompt},

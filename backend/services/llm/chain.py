@@ -18,6 +18,9 @@ from typing import Dict, Any, AsyncGenerator
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger("nolan.llm.chain")
 
@@ -111,14 +114,20 @@ Author's question:
 # ─── LLM factory ─────────────────────────────────────────────────────────────
 
 def _get_llm(temperature: float = 0.5):
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    model = os.getenv("LLM_MODEL", "openai/gpt-4o-mini")
     if not api_key:
-        raise ValueError("OPENAI_API_KEY is not set.")
+        raise ValueError("OPENROUTER_API_KEY is not set.")
     return ChatOpenAI(
-        model="gpt-4o-mini",
+        model=model,
         temperature=temperature,
         streaming=True,
         api_key=api_key,
+        base_url="https://openrouter.ai/api/v1",
+        default_headers={
+            "HTTP-Referer": "https://nolan-editor.com", 
+            "X-Title": "Nolan AI Studio",
+        }
     )
 
 

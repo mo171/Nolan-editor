@@ -1,18 +1,34 @@
 """
 Script-to-Comic Pipeline.
-Uses OpenAI to process chapters into structured panels and generates images via DALL-E 3.
+Uses OpenRouter to process chapters into structured panels and generates images via Stability AI.
 """
 import os
 import json
 import logging
 from openai import AsyncOpenAI
 from lib.supabase import supabase
+from dotenv import load_dotenv
+
+load_dotenv()
+
+import httpx
+import logging
+from pathlib import Path
 
 logger = logging.getLogger("nolan.comic.pipeline")
 
-# Initialize async OpenAI client
-# It will automatically pick up OPENAI_API_KEY from environment variables.
-client = AsyncOpenAI()
+# Initialize async OpenAI client for OpenRouter
+client = AsyncOpenAI(
+    api_key=os.getenv("OPENROUTER_API_KEY"),
+    base_url="https://openrouter.ai/api/v1"
+)
+
+# Local storage for comic panels
+BASE_DIR = Path(__file__).parent.parent.parent.parent
+COMIC_DIR = BASE_DIR / "frontend" / "public" / "comics"
+
+def ensure_comic_dir():
+    COMIC_DIR.mkdir(parents=True, exist_ok=True)
 
 async def process_scene(text: str) -> dict:
     """
@@ -45,14 +61,19 @@ async def process_scene(text: str) -> dict:
     """
     
     try:
+        model = os.getenv("LLM_MODEL", "openai/gpt-4o-mini")
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model,
             response_format={ "type": "json_object" },
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": text}
             ],
-            temperature=0.7
+            temperature=0.7,
+            extra_headers={
+                "HTTP-Referer": "https://nolan-editor.com",
+                "X-Title": "Nolan AI Studio",
+            }
         )
         return json.loads(response.choices[0].message.content)
     except Exception as e:
@@ -95,24 +116,50 @@ def generate_prompt(structured: dict) -> str:
 
 async def generate_image(prompt: str) -> str:
     """
-    Step 3: Generate the image via DALL-E 3 using the exact described prompt.
-    No safety rewriting — the prompt is sent as-is to faithfully capture the
-    scene environment, setting, and characters described by the user.
+    Step 3: Generate the image via Stability AI using the exact described prompt.
+    Saves image locally and returns the public file URL.
     """
     try:
-        logger.info(f"[DALL-E] Generating image with prompt: {prompt[:120]}...")
-        response = await client.images.generate(
-            model="dall-e-3",
-            prompt=prompt,
-            size="1024x1024",
-            quality="hd",
-            n=1,
-        )
-        return response.data[0].url
+        api_key = os.getenv("STABILITY_API_KEY")
+        if not api_key:
+            logger.error("[Stability] STABILITY_API_KEY not set.")
+            return "https://placehold.co/1024x1024/1e1e24/ba9eff.png?text=API+Key+Missing"
+
+        ensure_comic_dir()
+        logger.info(f"[Stability] Generating panel with prompt: {prompt[:120]}...")
+
+        async with httpx.AsyncClient() as http_client:
+            response = await http_client.post(
+                "https://api.stability.ai/v2beta/stable-image/generate/core",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Accept": "image/*"
+                },
+                files={"none": ""},
+                data={
+                    "prompt": prompt,
+                    "output_format": "png",
+                    "aspect_ratio": "1:1"
+                },
+                timeout=60.0,
+            )
+
+            if response.status_code != 200:
+                logger.error(f"[Stability] API error {response.status_code}: {response.text}")
+                return "https://placehold.co/1024x1024/1e1e24/ba9eff.png?text=Generation+Failed"
+
+            # Save locally
+            filename = f"panel_{uuid.uuid4().hex[:12]}.png"
+            filepath = COMIC_DIR / filename
+            
+            with open(filepath, "wb") as f:
+                f.write(response.content)
+
+            return f"/comics/{filename}"
+
     except Exception as e:
-        logger.error(f"[DALL-E] Image generation failed: {e}")
-        # Return a placeholder only on a hard failure (e.g. API key missing, network error)
-        return "https://placehold.co/1024x1024/1e1e24/ba9eff.png?text=Generation+Failed"
+        logger.error(f"[Stability] Image generation failed: {e}")
+        return "https://placehold.co/1024x1024/1e1e24/ba9eff.png?text=System+Error"
 
 import uuid
 

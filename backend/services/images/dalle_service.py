@@ -4,12 +4,20 @@ import logging
 from openai import OpenAI, AsyncOpenAI
 from pathlib import Path
 from lib.supabase import supabase
+from dotenv import load_dotenv
+
+load_dotenv()
+
+import httpx
 
 logger = logging.getLogger("nolan.images.dalle")
 
-# Initialize OpenAI client with key from .env
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-async_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Initialize clients for OpenRouter
+openrouter_key = os.getenv("OPENROUTER_API_KEY")
+async_client = AsyncOpenAI(
+    api_key=openrouter_key,
+    base_url="https://openrouter.ai/api/v1"
+)
 
 # Local storage path for avatars
 # Relative to Nolan-editor/backend, we want Nolan-editor/frontend/public/avatars
@@ -46,8 +54,9 @@ async def _generate_visual_summary(
             prompt_parts.append(f"Traits: {', '.join(traits)}")
 
         user_msg = "\n".join(prompt_parts)
+        model = os.getenv("LLM_MODEL", "openai/gpt-4o-mini")
         resp = await async_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model,
             messages=[
                 {
                     "role": "system",
@@ -62,6 +71,10 @@ async def _generate_visual_summary(
             ],
             temperature=0.6,
             max_tokens=80,
+            extra_headers={
+                "HTTP-Referer": "https://nolan-editor.com",
+                "X-Title": "Nolan AI Studio",
+            }
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
@@ -86,9 +99,9 @@ async def generate_character_image(
     Saves locally, updates Supabase, and returns the public URL.
     """
     try:
-        if not os.getenv("OPENAI_API_KEY"):
-            logger.error("[DALL-E] Missing OPENAI_API_KEY in .env")
-            return None
+        if not os.getenv("OPENROUTER_API_KEY") or not os.getenv("STABILITY_API_KEY"):
+            logger.error("[Portrait Generator] Missing OPENROUTER_API_KEY or STABILITY_API_KEY in .env")
+            return None, None
 
         ensure_avatar_dir()
 
@@ -117,27 +130,45 @@ async def generate_character_image(
         prompt = " ".join(prompt_parts)
         logger.info(f"[DALL-E] Generating portrait for '{char_name}' | prompt: {prompt[:140]}...")
 
-        # ── 2. Generate visual summary in parallel with DALL-E ───────────────
+        # ── 2. Generate visual summary in parallel with Stability ────────────
         import asyncio
         summary_task = asyncio.create_task(
             _generate_visual_summary(char_name, description, visual_description, age, clothing, traits or [])
         )
 
-        # ── 3. Call DALL-E 3 (hd) ────────────────────────────────────────────
-        response = await async_client.images.generate(
-            model="dall-e-3",
-            prompt=prompt,
-            size="1024x1024",
-            quality="hd",
-            n=1,
-        )
+        # ── 3. Call Stability AI ────────────────────────────────────────────
+        stability_key = os.getenv("STABILITY_API_KEY")
+        if not stability_key:
+            logger.error("[Stability] Missing STABILITY_API_KEY")
+            return None, None
 
-        image_url = response.data[0].url
+        async with httpx.AsyncClient() as http_client:
+            response = await http_client.post(
+                "https://api.stability.ai/v2beta/stable-image/generate/core",
+                headers={
+                    "Authorization": f"Bearer {stability_key}",
+                    "Accept": "image/*"
+                },
+                files={"none": ""},
+                data={
+                    "prompt": prompt,
+                    "output_format": "png",
+                    "aspect_ratio": "1:1"
+                },
+                timeout=60.0
+            )
+
+            if response.status_code != 200:
+                logger.error(f"[Stability] API error {response.status_code}: {response.text}")
+                return None, None
+
+            img_data = response.content
+
         ai_visual_summary = await summary_task
 
-        # ── 4. Download + save locally ─────────────────────────────────────
-        img_data = requests.get(image_url, timeout=30).content
+        logger.info(f"[Stability] Portrait generated for '{char_name}'")
 
+        # ── 4. Save locally ─────────────────────────────────────
         safe_name = "".join([c if c.isalnum() else "_" for c in char_name.lower()])
         filename = f"{project_id}_{safe_name}.png"
         filepath = AVATAR_DIR / filename
@@ -161,9 +192,9 @@ async def generate_character_image(
             "project_id", project_id
         ).ilike("name", char_name).execute()
 
-        logger.info(f"[DALL-E] Portrait saved for '{char_name}' → {public_url}")
+        logger.info(f"[Stability] Portrait saved for '{char_name}' → {public_url}")
         return public_url, ai_visual_summary
 
     except Exception as e:
-        logger.error(f"[DALL-E] Failed to generate image for '{char_name}': {e}")
+        logger.error(f"[Stability] Failed to generate image for '{char_name}': {e}")
         return None, None

@@ -21,7 +21,8 @@ PAGE_HEIGHT = 10.25 * 72  # 738 pt
 
 # Local storage path for exports
 BASE_DIR = Path(__file__).parent.parent.parent.parent
-EXPORTS_DIR = BASE_DIR / "frontend" / "public" / "exports"
+PUBLIC_DIR = BASE_DIR / "frontend" / "public"
+EXPORTS_DIR = PUBLIC_DIR / "exports"
 
 def ensure_exports_dir():
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -207,16 +208,25 @@ async def generate_comic_pdf(project_id: str, comic_id: str) -> str:
                     if img_url:
                         tmp_name = None
                         try:
-                            # Add timeout and follow redirects
-                            img_resp = await http_client.get(img_url, timeout=30.0, follow_redirects=True)
-                            img_resp.raise_for_status()
-                            
-                            # Save to temp file
-                            with NamedTemporaryFile(delete=False, suffix=".png") as tmp:
-                                tmp.write(img_resp.content)
-                                tmp_name = tmp.name
+                            if img_url.startswith("/"):
+                                # Local file in frontend/public
+                                local_path = PUBLIC_DIR / img_url.lstrip("/")
+                                if not local_path.exists():
+                                    raise FileNotFoundError(f"Local image not found: {local_path}")
+                                img_reader = ImageReader(str(local_path))
+                            else:
+                                # Remote URL
+                                # Add timeout and follow redirects
+                                img_resp = await http_client.get(img_url, timeout=30.0, follow_redirects=True)
+                                img_resp.raise_for_status()
                                 
-                            img_reader = ImageReader(tmp_name)
+                                # Save to temp file
+                                with NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+                                    tmp.write(img_resp.content)
+                                    tmp_name = tmp.name
+                                    
+                                img_reader = ImageReader(tmp_name)
+
                             # Draw crop/scale to fit panel bounds
                             c.drawImage(img_reader, p_x, p_y, width=panel_w, height=panel_h, preserveAspectRatio=True, anchor="c")
                         except Exception as e:
