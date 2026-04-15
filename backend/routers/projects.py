@@ -12,7 +12,10 @@ import logging
 
 from lib.supabase import supabase
 from lib.redis_client import cache
+from lib.ws_manager import manager
 from lib.worker import fire_and_forget
+from services.graph.graph_service import get_visual_graph
+from services.images.dalle_service import generate_character_image
 
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -60,6 +63,15 @@ class ProjectUpdate(BaseModel):
     conflict_types: Optional[list[str]] = None
     tension_tags: Optional[list[str]] = None
     inciting_incident: Optional[str] = None
+
+
+class GraphPositionUpdate(BaseModel):
+    node_id: str
+    x: float
+    y: float
+
+class GraphPositionsPayload(BaseModel):
+    positions: list[GraphPositionUpdate]
 
 
 # ─── Routes ─────────────────────────────────────────────────────────────────
@@ -267,7 +279,101 @@ async def get_dna(project_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ─── DNA Upload ──────────────────────────────────────────────────────────────
+# ─── Knowledge Graph Visualization ───────────────────────────────────────────
+
+@router.get("/{project_id}/visual-graph")
+async def fetch_visual_graph(project_id: str):
+    """
+    Returns the complete narrative network from Neo4j merged with 
+    saved UI positions from Supabase pgSQL.
+    """
+    try:
+        # 1. Fetch Graph from Neo4j (async)
+        graph_data = await get_visual_graph(project_id)
+        
+        # 2. Fetch Positions from Supabase
+        pos_res = supabase.table("visual_graph_positions").select("node_id, x, y").eq("project_id", project_id).execute()
+        pos_map = {p["node_id"]: {"x": p["x"], "y": p["y"]} for p in (pos_res.data or [])}
+        
+        # 3. Merge positions into graph nodes
+        for node in graph_data["nodes"]:
+            if node["id"] in pos_map:
+                node["position"] = pos_map[node["id"]]
+            else:
+                # If no saved position, we'll let the frontend layout handles it
+                # or provide a default staggered start
+                pass
+                
+        return graph_data
+
+    except Exception as e:
+        logger.error(f"[Projects] Visual graph fetch error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/{project_id}/visual-graph/positions")
+async def update_graph_positions(project_id: str, payload: GraphPositionsPayload):
+    """
+    Upsert node coordinates to persist the user's graph layout.
+    """
+    try:
+        if not payload.positions:
+            return {"status": "ok", "updated": 0}
+
+        rows = [
+            {
+                "project_id": project_id,
+                "node_id": p.node_id,
+                "x": p.x,
+                "y": p.y,
+                "updated_at": "now()"
+            }
+            for p in payload.positions
+        ]
+        
+        # Perform upsert
+        supabase.table("visual_graph_positions").upsert(rows, on_conflict="project_id,node_id").execute()
+        
+        return {"status": "ok", "updated": len(rows)}
+
+    except Exception as e:
+        logger.error(f"[Projects] Graph positions update error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/{project_id}/characters/{char_name}/generate-image")
+async def trigger_character_image_gen(project_id: str, char_name: str):
+    """
+    Manually trigger DALL-E 3 image generation for a character.
+    Fetch description from Supabase first to provide context to the AI.
+    """
+    try:
+        # 1. Fetch character metadata for the prompt
+        # Check project_characters (Story Bible) first
+        res = supabase.table("project_characters").select("description, traits").eq("project_id", project_id).eq("name", char_name).maybe_single().execute()
+        
+        description = "A character in a narrative"
+        traits = []
+        
+        if res and res.data:
+            description = res.data.get("description") or description
+            traits = res.data.get("traits") or []
+        else:
+            # Check characters (extracted)
+            res2 = supabase.table("characters").select("role, name").eq("project_id", project_id).eq("name", char_name).maybe_single().execute()
+            if res2 and res2.data:
+                description = f"A {res2.data.get('role', 'character')} named {char_name}"
+
+        # 2. Trigger generation
+        public_url = await generate_character_image(project_id, char_name, description, traits)
+        
+        if not public_url:
+            raise HTTPException(status_code=500, detail="DALL-E generation failed")
+            
+        return {"status": "ok", "image_url": public_url}
+
+    except Exception as e:
+        logger.error(f"[Projects] Manual image gen failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 async def _index_dna(project_id: str, text: str, filename: str):
     """

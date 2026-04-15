@@ -13,6 +13,7 @@ import {
   Clock,
   MoreHorizontal,
   FolderOpen,
+  Network,
 } from "lucide-react";
 import { useEditorContext } from "@/features/editor/context/editor-context";
 import { useParams } from "next/navigation";
@@ -402,7 +403,7 @@ function TimelinePanel() {
 }
 
 export function EditorSidebar() {
-  const { chapters, sidebarOpen, setSidebarOpen, addChapter } = useEditorContext();
+  const { chapters, sidebarOpen, setSidebarOpen, addChapter, activeView, setActiveView } = useEditorContext();
   const [activeTab, setActiveTab] = useState("chapters");
 
   const activePanel = PANELS.find((p) => p.id === activeTab);
@@ -485,6 +486,20 @@ export function EditorSidebar() {
                 {activeTab === "timeline" && <TimelinePanel />}
               </motion.div>
             </AnimatePresence>
+          </div>
+          {/* Bottom Actions */}
+          <div className="p-3 border-t border-white/5 space-y-2">
+            <button 
+              onClick={() => setActiveView(activeView === 'editor' ? 'graph' : 'editor')}
+              className={`flex items-center gap-3 w-full px-4 py-3 text-xs font-bold uppercase tracking-widest transition-all rounded-xl border-dashed border
+                ${activeView === 'graph' 
+                  ? 'bg-[#ba9eff]/10 text-[#ba9eff] border-[#ba9eff]/40 shadow-[0_0_15px_rgba(186,158,255,0.15)]' 
+                  : 'text-white/30 hover:text-white/60 hover:bg-white/5 border-white/10'}
+              `}
+            >
+              <Network size={14} className={activeView === 'graph' ? 'animate-pulse' : ''} />
+              {activeView === 'graph' ? 'Studio Editor' : 'Story Graph'}
+            </button>
           </div>
         </motion.aside>
       )}

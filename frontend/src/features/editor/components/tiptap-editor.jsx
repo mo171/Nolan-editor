@@ -31,7 +31,7 @@ export function TiptapEditor({ onEditorReady }) {
   const params = useParams();
   const projectId = params?.projectId;
 
-  const { activeScene, updateSceneContent, updateSceneMetadata, activeMode, setActiveSuggestion, setStudioPanelOpen } = useEditorContext();
+  const { activeScene, updateSceneContent, updateSceneMetadata, activeMode, setActiveSuggestion, setStudioPanelOpen, ghostTextEnabled } = useEditorContext();
   const ghostTimerRef = useRef(null);
   const editorRef = useRef(null);
 
@@ -65,7 +65,7 @@ export function TiptapEditor({ onEditorReady }) {
       
       // Ghostwriter Logic: Start Zen timer on inactivity
       if (ghostTimerRef.current) clearTimeout(ghostTimerRef.current);
-      if (activeMode === "Creative") {
+      if (activeMode === "Creative" && ghostTextEnabled) {
         ghostTimerRef.current = setTimeout(() => {
           // Send last ~30 words to context
           const text = editor.getText();
@@ -78,7 +78,7 @@ export function TiptapEditor({ onEditorReady }) {
         editor.commands.clearGhostText();
       }
     },
-    [activeScene?.id, updateSceneContent, activeMode, requestGhost, clearGhost]
+    [activeScene?.id, updateSceneContent, activeMode, requestGhost, clearGhost, ghostTextEnabled]
   );
   
   const handleSelectionUpdate = useCallback(({ editor }) => {

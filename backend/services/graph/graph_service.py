@@ -15,7 +15,7 @@ from services.nlp.entity_extractor import ExtractionResult
 logger = logging.getLogger("nolan.graph.graph_service")
 
 
-async def update_graph(project_id: str, scene_id: str, nlp_result: ExtractionResult, dominant_emotion: str = None):
+async def update_graph(project_id: str, scene_id: str, nlp_result: ExtractionResult, dominant_emotion: str = None, scene_title: str = None):
     """
     Called by scene_processor.py after NLP extraction.
     Creates or updates Scene, Character nodes and their relationships.
@@ -31,7 +31,8 @@ async def update_graph(project_id: str, scene_id: str, nlp_result: ExtractionRes
     cypher_base = """
     MERGE (s:Scene {id: $scene_id})
     SET s.project_id = $project_id,
-        s.emotion = $emotion
+        s.emotion = $emotion,
+        s.title = $title
 
     WITH s
     UNWIND $characters AS char_name
@@ -98,7 +99,8 @@ async def update_graph(project_id: str, scene_id: str, nlp_result: ExtractionRes
                 scene_id=scene_id, 
                 project_id=project_id, 
                 characters=nlp_result.scene_characters,
-                emotion=dominant_emotion or "neutral"
+                emotion=dominant_emotion or "neutral",
+                title=scene_title or f"Scene {scene_id[:8]}"
             )
 
             # Run Social if > 1 character
@@ -223,6 +225,138 @@ async def get_linter_context(project_id: str, character_names: list[str]) -> str
     except Exception as e:
         logger.error(f"[Graph] Context fetch failed: {e}")
         return ""
+
+
+async def get_visual_graph(project_id: str) -> Dict[str, Any]:
+    """
+    Fetch all nodes and summarized relationships from Neo4j for the visual visualizer.
+    Summarizes multiple interactions into single weighted edges.
+    Enriches Neo4j data with Supabase 'Source of Truth' metadata (images, traits).
+    """
+    from lib.supabase import supabase
+    driver = get_neo4j_driver()
+    if not driver:
+        return {"nodes": [], "edges": []}
+
+    cypher_nodes = """
+    MATCH (n {project_id: $project_id})
+    RETURN labels(n) AS labels, n AS data, id(n) AS neo_id
+    """
+
+    # Summarized Edges: Group by source, target, and type. 
+    # Take latest action/emotion and sum weights.
+    cypher_edges = """
+    MATCH (n {project_id: $project_id})-[r]->(m {project_id: $project_id})
+    RETURN id(n) AS source_neo, 
+           id(m) AS target_neo, 
+           type(r) AS type,
+           count(r) AS interaction_count,
+           collect(r.action)[-1] AS last_action,
+           collect(r.emotion)[-1] AS last_emotion,
+           sum(coalesce(r.weight, 1)) AS total_weight
+    """
+
+    try:
+        with driver.session() as session:
+            # 1. Fetch Nodes
+            node_result = session.run(cypher_nodes, project_id=project_id)
+            nodes = []
+            neo_to_id = {} # Map internal neo4j ID to our domain ID
+
+            for record in node_result:
+                labels = record["labels"]
+                data = dict(record["data"])
+                neo_id = record["neo_id"]
+                
+                node_id = data.get("id") or data.get("name")
+                neo_to_id[neo_id] = str(node_id)
+                
+                nodes.append({
+                    "id": str(node_id),
+                    "type": labels[0] if labels else "Default",
+                    "data": {
+                        "label": data.get("title") or data.get("name") or node_id,
+                        **data
+                    },
+                    "position": {"x": 0, "y": 0} 
+                })
+
+            # 2. Enrich with Supabase "Source of Truth" (All Characters & Images)
+            try:
+                # Fetch both project_characters (defined) and characters (extracted)
+                pc_res = supabase.table("project_characters").select("name, role, description, traits, image_url").eq("project_id", project_id).execute()
+                char_res = supabase.table("characters").select("name, role, description, arc_summary, image_url").eq("project_id", project_id).execute()
+                
+                # Merge into a master metadata map
+                metadata_map = {}
+                for c in (pc_res.data or []):
+                    metadata_map[c["name"]] = {**c, "is_defined": True}
+                for c in (char_res.data or []):
+                    # Prefer existing metadata but fill gaps
+                    if c["name"] not in metadata_map:
+                        metadata_map[c["name"]] = {**c, "is_defined": False}
+                    else:
+                        metadata_map[c["name"]].update({k: v for k, v in c.items() if v})
+
+                # Ensure ALL characters from Supabase are in the nodes list
+                existing_node_ids = {n["id"] for n in nodes if n["type"] == "Character"}
+                for name, meta in metadata_map.items():
+                    if name not in existing_node_ids:
+                        nodes.append({
+                            "id": name,
+                            "type": "Character",
+                            "data": {
+                                "label": name,
+                                "role": meta.get("role"),
+                                "description": meta.get("description"),
+                                "traits": meta.get("traits"),
+                                "image_url": meta.get("image_url")
+                            },
+                            "position": {"x": 0, "y": 0}
+                        })
+                
+                # Update existing nodes with Supabase metadata (images, descriptions)
+                for node in nodes:
+                    if node["type"] == "Character" and node["id"] in metadata_map:
+                        node["data"].update(metadata_map[node["id"]])
+
+            except Exception as e:
+                logger.warning(f"[Graph] Supabase enrichment failed: {e}")
+
+            # 3. Fetch Summarized Edges
+            edge_result = session.run(cypher_edges, project_id=project_id)
+            edges = []
+            
+            for record in edge_result:
+                source_neo = record["source_neo"]
+                target_neo = record["target_neo"]
+                edge_type = record["type"]
+                
+                source_id = neo_to_id.get(source_neo)
+                target_id = neo_to_id.get(target_neo)
+                
+                if not source_id or not target_id:
+                    continue
+
+                edges.append({
+                    "id": f"e-{source_id}-{target_id}-{edge_type}",
+                    "source": source_id,
+                    "target": target_id,
+                    "label": edge_type.lower().replace("_", " "),
+                    "data": {
+                        "type": edge_type,
+                        "weight": record["total_weight"],
+                        "last_action": record["last_action"],
+                        "last_emotion": record["last_emotion"]
+                    },
+                    "animated": edge_type == "INTERACTS_WITH"
+                })
+
+            return {"nodes": nodes, "edges": edges}
+
+    except Exception as e:
+        logger.error(f"[Graph] Visual graph fetch failed: {e}")
+        return {"nodes": [], "edges": []}
 
 
 async def init_project_graph(project_id: str, characters: list):

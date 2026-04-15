@@ -10,6 +10,8 @@ import { TiptapEditor } from "@/features/editor/components/tiptap-editor";
 import { EditorStudioPanel } from "@/features/editor/components/editor-studio-panel";
 import { EditorAiBar } from "@/features/editor/components/editor-ai-bar";
 import { BeatSheet } from "@/features/editor/components/beat-sheet";
+import KnowledgeGraphCanvas from "@/features/editor/components/knowledge-graph-canvas";
+import { useParams } from "next/navigation";
 
 function SidebarToggle({ side }) {
   const { sidebarOpen, setSidebarOpen, studioPanelOpen, setStudioPanelOpen } = useEditorContext();
@@ -35,8 +37,10 @@ function SidebarToggle({ side }) {
 }
 
 function EditorLayout() {
-  const { sidebarOpen, studioPanelOpen, activeMode } = useEditorContext();
+  const { sidebarOpen, studioPanelOpen, activeMode, activeView } = useEditorContext();
   const [tiptapEditor, setTiptapEditor] = useState(null);
+  const params = useParams();
+  const projectId = params?.projectId;
 
   const handleEditorReady = useCallback((editor) => {
     setTiptapEditor(editor);
@@ -49,14 +53,28 @@ function EditorLayout() {
 
       {/* Main 3-column layout */}
       <div className="flex flex-1 overflow-hidden relative">
-        {/* Left Sidebar */}
-        <div className="relative flex-shrink-0">
+        <AnimatePresence mode="wait">
+          {activeView === 'graph' ? (
+            <motion.div
+              key="graph-view"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 z-10"
+            >
+              <KnowledgeGraphCanvas projectId={projectId} />
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+
+        {/* Left Sidebar - Always visible unless specifically closed, but dimmed if in graph */}
+        <div className={`relative flex-shrink-0 transition-opacity duration-500 ${activeView === 'graph' ? 'opacity-20 hover:opacity-100' : 'opacity-100'}`}>
           <EditorSidebar />
           <SidebarToggle side="left" />
         </div>
 
         {/* Center Editor Area */}
-        <main className="flex-1 flex flex-col overflow-hidden min-w-0 relative">
+        <main className={`flex-1 flex flex-col overflow-hidden min-w-0 relative transition-all duration-500 ${activeView === 'graph' ? 'blur-xl scale-95 opacity-0' : 'blur-0 scale-100 opacity-100'}`}>
           <AnimatePresence mode="wait">
             {activeMode === "Planning" ? (
               <motion.div
@@ -84,7 +102,7 @@ function EditorLayout() {
         </main>
 
         {/* Right Studio Panel */}
-        <div className="relative flex-shrink-0">
+        <div className={`relative flex-shrink-0 transition-all duration-500 ${activeView === 'graph' ? 'translate-x-full opacity-0' : 'translate-x-0 opacity-100'}`}>
           <SidebarToggle side="right" />
           <EditorStudioPanel />
         </div>

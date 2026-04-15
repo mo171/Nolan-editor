@@ -19,7 +19,13 @@ async def process_scene(text: str) -> dict:
     Step 1: Convert raw scene text into structured JSON.
     """
     system_prompt = """
-    You are an expert comic book director. Extract the core visual and structural elements from the provided scene text.
+    You are an expert comic book director. Extract the core visual and structural elements from the provided scene text for a single dramatic comic panel.
+    
+    CRITICAL RULES:
+    1. DIALOGUE: Extract ONLY the 1-2 most impactful lines of dialogue. Do not include background chatter or minor lines.
+    2. SAFETY: If the scene contains violence or sensitive topics, rewrite the visual descriptions (action, location) into stylized, cinematic metaphors that are safe for use with DALL-E 3 (e.g., instead of "bloody fight", use "dramatic red lighting and intense shadows during a stylized confrontation").
+    3. POSITIONING: Spread out speech_bubbles coordinates (x: 10-90, y: 10-90). Avoid the center (50, 50). If there are two bubbles, place them on opposite sides (e.g., x=20/y=20 and x=80/y=30).
+    
     Return a JSON object strictly matching this format:
     {
         "characters": ["name1", "name2"],
@@ -30,10 +36,9 @@ async def process_scene(text: str) -> dict:
         "caption_top": "narrator style text describing the start",
         "caption_bottom": "narrator style text describing the end or result",
         "speech_bubbles": [
-            {"text": "dialogue line", "x": 50, "y": 30}
+            {"text": "dialogue line", "x": 20, "y": 20}
         ]
     }
-    Make sure speech_bubbles coordinates x and y are between 10 and 90, representing percentages of image dimensions. If no dialogue, return empty array.
     """
     
     try:
@@ -73,7 +78,7 @@ def generate_prompt(structured: dict) -> str:
     )
     return prompt
 
-async def generate_image(prompt: str) -> str:
+async def generate_image(prompt: str, retry_safe: bool = True) -> str:
     """
     Step 3: Generate the image via DALL-E 3 (or fallback to placeholder).
     """
@@ -87,6 +92,14 @@ async def generate_image(prompt: str) -> str:
         )
         return response.data[0].url
     except Exception as e:
+        # Check if it was a safety rejection
+        error_str = str(e)
+        if "content_policy_violation" in error_str and retry_safe:
+            logger.warning("DALL-E safety rejection. Retrying with abstracted safe prompt.")
+            # Create a highly abstracted/safe version of the prompt
+            safe_prompt = "A stylized, cinematic abstract comic book panel with dramatic lighting and colors, expressive atmosphere, graphic novel ink style, high quality."
+            return await generate_image(safe_prompt, retry_safe=False)
+            
         logger.error(f"Error generating image: {e}")
         # Return a placeholder if generation fails (e.g. no API key)
         return "https://placehold.co/1024x1024/1e1e24/ba9eff?text=Generation+Failed"
@@ -126,8 +139,8 @@ async def generate_comic_for_chapter(project_id: str, chapter_id: str, template_
 
     panels_data = []
     
-    # We'll just process the first 2 scenes to avoid massive API bills and delays for the user during testing.
-    for i, scene in enumerate(scenes[:2]):
+    # Process all scenes to create a full comic flow
+    for i, scene in enumerate(scenes):
         text = scene.get("plain_text") or scene.get("content") or "Empty scene."
         
         # NLP Structure

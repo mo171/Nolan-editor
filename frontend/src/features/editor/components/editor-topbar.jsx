@@ -9,6 +9,7 @@ import {
   Download,
   RefreshCw,
   ChevronDown,
+  Sparkles,
 } from "lucide-react";
 import { useEditorContext } from "@/features/editor/context/editor-context";
 import Link from "next/link";
@@ -77,6 +78,8 @@ export function EditorTopbar() {
     activeMode,
     updateProjectTitle,
     setActiveMode,
+    ghostTextEnabled,
+    setGhostTextEnabled,
   } = useEditorContext();
 
   const params = useParams();
@@ -140,6 +143,20 @@ export function EditorTopbar() {
             </button>
           ))}
         </div>
+
+        {/* Ghost Text Toggle */}
+        <button
+          onClick={() => setGhostTextEnabled(!ghostTextEnabled)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all duration-300 ${
+            ghostTextEnabled 
+              ? "bg-primary/10 border-primary/20 text-primary shadow-[0_0_10px_rgba(186,158,255,0.1)]" 
+              : "bg-white/5 border-white/5 text-white/30"
+          }`}
+          title={ghostTextEnabled ? "Disable Ghost Text" : "Enable Ghost Text"}
+        >
+          <Sparkles size={13} className={ghostTextEnabled ? "animate-pulse" : ""} />
+          <span className="text-[10px] font-bold uppercase tracking-wider">AI</span>
+        </button>
       </div>
 
       {/* Center: Document Title */}

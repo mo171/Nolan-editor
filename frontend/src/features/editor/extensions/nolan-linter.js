@@ -74,12 +74,20 @@ export const NolanLinter = Mark.create({
         },
       unsetLinterMark:
         (id) =>
-        ({ editor }) => {
+        ({ state, dispatch }) => {
           // Removes a specific mark by ID or all if no ID
-          if (!id) return editor.commands.unsetMark(this.name);
+          if (!id) {
+            if (dispatch) {
+              const { tr } = state;
+              tr.removeMark(0, state.doc.content.size, state.schema.marks[this.name]);
+              dispatch(tr);
+            }
+            return true;
+          }
           
-          let transaction = editor.state.tr;
-          const { doc } = transaction;
+          const { tr } = state;
+          const { doc } = tr;
+          let docChanged = false;
 
           doc.descendants((node, pos) => {
             if (node.isText) {
@@ -87,13 +95,14 @@ export const NolanLinter = Mark.create({
                 (mark) => mark.type.name === this.name && mark.attrs.id === id
               );
               if (marks.length > 0) {
-                transaction.removeMark(pos, pos + node.nodeSize, marks[0]);
+                tr.removeMark(pos, pos + node.nodeSize, marks[0]);
+                docChanged = true;
               }
             }
           });
 
-          if (transaction.docChanged) {
-            editor.view.dispatch(transaction);
+          if (docChanged) {
+            if (dispatch) dispatch(tr);
             return true;
           }
           return false;

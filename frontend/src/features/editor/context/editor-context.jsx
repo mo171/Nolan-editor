@@ -23,6 +23,7 @@ const defaultState = {
   activeSceneId: null,
   expandedChapterIds: [],
   activeMode: "Creative",
+  ghostTextEnabled: true,
 };
 
 function loadFromStorage(projectId) {
@@ -61,6 +62,7 @@ export function EditorProvider({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [studioPanelOpen, setStudioPanelOpen] = useState(true);
   const [activeSuggestion, setActiveSuggestion] = useState(null);
+  const [activeView, setActiveView] = useState("editor"); // 'editor' | 'graph'
   const [isReady, setIsReady] = useState(false);
   
   const initializedRef = useRef(false);
@@ -337,6 +339,10 @@ export function EditorProvider({ children }) {
     });
   }, [updateState]);
 
+  const setGhostTextEnabled = useCallback((enabled) => {
+    updateState((prev) => ({ ...prev, ghostTextEnabled: enabled }));
+  }, [updateState]);
+
   // ─── Derived values ───────────────────────────────────────────────────────
   const activeChapter = state.chapters.find((c) => c.id === state.activeChapterId) ?? state.chapters[0];
   const activeScene =
@@ -374,10 +380,15 @@ export function EditorProvider({ children }) {
     setActiveMode,
     reorderScenes,
     updateSceneMetadata,
+    setGhostTextEnabled,
     
     // Linter
     activeSuggestion,
     setActiveSuggestion,
+    
+    // View
+    activeView,
+    setActiveView,
   };
 
   if (!isReady) {

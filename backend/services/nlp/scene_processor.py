@@ -38,7 +38,7 @@ async def run_scene_nlp(scene_id: str, project_id: str) -> dict:
 
     # ── Step 1: INGESTION ───────────────────────────────────────────────────
     res = supabase.table("scenes").select(
-        "id, content, plain_text, chapter_id"
+        "id, title, content, plain_text, chapter_id"
     ).eq("id", scene_id).single().execute()
 
     if not res.data:
@@ -46,6 +46,7 @@ async def run_scene_nlp(scene_id: str, project_id: str) -> dict:
         return {}
 
     scene = res.data
+    title = scene.get("title")
     content = scene.get("content", "")
     plain_text = scene.get("plain_text") or strip_html(content)
 
@@ -158,7 +159,7 @@ async def run_scene_nlp(scene_id: str, project_id: str) -> dict:
                 if arc_res and arc_res.get("arc_change_detected"):
                     arc_warnings.append(arc_res)
 
-                supabase.table("characters").insert({
+                res = supabase.table("characters").insert({
                     "project_id": project_id,
                     "name": char_name,
                     "first_seen_scene_id": scene_id,
@@ -167,6 +168,15 @@ async def run_scene_nlp(scene_id: str, project_id: str) -> dict:
                     "last_known_location": extraction.scene_locations[-1] if extraction.scene_locations else None,
                     "user_defined": False,
                 }).execute()
+
+                # ── Auto-Generate AI Avatar for Discovered Character ──
+                if res.data:
+                    from services.images.dalle_service import generate_character_image
+                    from lib.worker import fire_and_forget
+                    fire_and_forget(
+                        generate_character_image(project_id, char_name, description="Newly discovered character"),
+                        task_name=f"dalle_gen_{project_id}_{char_name}"
+                    )
         except Exception as e:
             logger.warning(f"[Processor] Character update failed for '{char_name}': {e}")
 
@@ -181,7 +191,15 @@ async def run_scene_nlp(scene_id: str, project_id: str) -> dict:
 
     # ── Step 8: GRAPH UPSERT ───────────────────────────────────────────────
     from services.graph.graph_service import update_graph
-    await update_graph(project_id, scene_id, extraction, dominant_emotion=dominant_emotion)
+    
+    # Human-readable title or 3-word summary fallback
+    clean_title = title
+    if not clean_title or len(clean_title) < 3 or clean_title.startswith("sc-"):
+        # Auto-generate 3-word summary from first sentence
+        words = plain_text.strip().split()
+        clean_title = " ".join(words[:3]) + "..." if len(words) > 3 else " ".join(words)
+    
+    await update_graph(project_id, scene_id, extraction, dominant_emotion=dominant_emotion, scene_title=clean_title)
 
     # ── Step 9: VECTOR INDEXING (RAG) ───────────────────────────────────────
     from services.rag.indexer import index_scene

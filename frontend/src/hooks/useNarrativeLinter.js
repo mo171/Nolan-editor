@@ -36,9 +36,15 @@ export function useNarrativeLinter(editor, projectId, activeSceneId) {
       let transaction = editor.state.tr;
       let docChanged = false;
 
+      // Safety check: Document might have shrunk or changed since the async request began
+      if (startPos > editor.state.doc.content.size) return;
+
       // Get the paragraph node and its absolute start
       const $pos = editor.state.doc.resolve(startPos);
       const paragraph = $pos.nodeAfter;
+      
+      // Sanity check: Ensure we are still looking at a textblock and it roughly matches 
+      // where we expect to be. If the document shifted significantly, drop these suggestions.
       if (!paragraph || !paragraph.isTextblock) return;
 
       // CLEAR STALE MARKS in this paragraph range first

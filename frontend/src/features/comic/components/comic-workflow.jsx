@@ -28,16 +28,17 @@ export default function ComicWorkflow({ projectId, projectData, currentStep, set
           });
           const data = await res.json();
           
-          if (data?.comic?.pages?.[0]?.panels?.[0]) {
-             const serverPanel = data.comic.pages[0].panels[0];
+          if (data?.comic?.pages?.[0]?.panels) {
+             const serverPanels = data.comic.pages[0].panels;
              setComicData({
                 title: data.comic.title || "Generated Comic",
-                panel: {
-                  imageUrl: serverPanel.image_url,
-                  topText: serverPanel.caption_top || "...",
-                  bottomText: serverPanel.caption_bottom || "...",
-                  bubbles: serverPanel.speech_bubbles || []
-                }
+                panels: serverPanels.map(p => ({
+                  id: p.id,
+                  imageUrl: p.image_url,
+                  topText: p.caption_top || "...",
+                  bottomText: p.caption_bottom || "...",
+                  bubbles: p.speech_bubbles || []
+                }))
              });
           } else {
              // Fallback
@@ -58,12 +59,14 @@ export default function ComicWorkflow({ projectId, projectData, currentStep, set
 
   const getMockComicData = () => ({
     title: "Generation Fallback",
-    panel: {
-      imageUrl: "https://placehold.co/800x600/1e1e24/ff6b6b?text=API+Error:+Generation+Failed",
-      topText: "An error occurred while generating your comic. Please check your backend logs or your OpenAI API key.",
-      bottomText: "The system has gracefully fallen back so the editor does not crash.",
-      bubbles: []
-    }
+    panels: [
+      {
+        imageUrl: "https://placehold.co/800x600/1e1e24/ff6b6b?text=API+Error:+Generation+Failed",
+        topText: "An error occurred while generating your comic. Please check your backend logs or your OpenAI API key.",
+        bottomText: "The system has gracefully fallen back so the editor does not crash.",
+        bubbles: []
+      }
+    ]
   });
 
   // --- VIEWS ---
@@ -139,11 +142,30 @@ export default function ComicWorkflow({ projectId, projectData, currentStep, set
 
   if (currentStep === 4 && comicData) {
     return (
-      <div className="h-full flex flex-col items-center overflow-y-auto pb-20">
-        <EditablePanel 
-          panelData={comicData.panel} 
-          onUpdate={(updatedData) => setComicData({...comicData, panel: updatedData})} 
-        />
+      <div className="h-full flex flex-col items-center overflow-y-auto pb-20 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+        <div id="comic-canvas" className="flex flex-col gap-16 w-full max-w-4xl mx-auto py-8 bg-[#09090b]">
+          {comicData.panels?.map((panel, idx) => (
+            <div key={panel.id || idx} className="flex flex-col items-center gap-6 animate-in fade-in slide-in-from-bottom-4 duration-700" style={{ animationDelay: `${idx * 150}ms` }}>
+               <div className="flex items-center gap-3">
+                 <div className="h-[1px] w-12 bg-white/10" />
+                 <div className="bg-white/5 border border-white/10 px-4 py-1.5 rounded-full text-[10px] font-bold tracking-[0.2em] text-[#ba9eff] uppercase">
+                   Scene {idx + 1}
+                 </div>
+                 <div className="h-[1px] w-12 bg-white/10" />
+               </div>
+               
+               <EditablePanel 
+                 panelData={panel} 
+                 index={idx}
+                 onUpdate={(updatedData) => {
+                   const newPanels = [...comicData.panels];
+                   newPanels[idx] = updatedData;
+                   setComicData({...comicData, panels: newPanels});
+                 }} 
+               />
+            </div>
+          ))}
+        </div>
         
         <div className="mt-12 flex gap-4">
            <button 
