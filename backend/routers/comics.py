@@ -55,15 +55,23 @@ async def generate_comic(project_id: str, request: ComicGenerateRequest):
         logging.getLogger("nolan.comic.router").error(f"Comic gen failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+from services.comic.pdf_exporter import generate_comic_pdf
+
 @router.post("/{comic_id}/export")
-async def export_comic_pdf(project_id: str, comic_id: str):
+async def export_comic_pdf_endpoint(project_id: str, comic_id: str):
     """
-    Export logic placeholder. Returns a dummy PDF url.
+    Assembles all panels into a multi-page PDF comic book and returns the download link.
     """
-    return {
-        "status": "success",
-        "pdf_url": f"https://example.com/mock-export/{comic_id}.pdf"
-    }
+    try:
+        pdf_url = await generate_comic_pdf(project_id, comic_id)
+        return {
+            "status": "success",
+            "pdf_url": pdf_url
+        }
+    except Exception as e:
+        import logging
+        logging.getLogger("nolan.comic.router").error(f"PDF Export failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to export PDF: {str(e)}")
 
 @router.put("/panels/{panel_id}")
 async def update_panel(project_id: str, panel_id: str, payload: dict):

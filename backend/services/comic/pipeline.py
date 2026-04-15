@@ -112,7 +112,7 @@ async def generate_image(prompt: str) -> str:
     except Exception as e:
         logger.error(f"[DALL-E] Image generation failed: {e}")
         # Return a placeholder only on a hard failure (e.g. API key missing, network error)
-        return "https://placehold.co/1024x1024/1e1e24/ba9eff?text=Generation+Failed"
+        return "https://placehold.co/1024x1024/1e1e24/ba9eff.png?text=Generation+Failed"
 
 import uuid
 

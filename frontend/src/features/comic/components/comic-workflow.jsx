@@ -31,6 +31,7 @@ export default function ComicWorkflow({ projectId, projectData, currentStep, set
           if (data?.comic?.pages?.[0]?.panels) {
              const serverPanels = data.comic.pages[0].panels;
              setComicData({
+                id: data.comic.id,
                 title: data.comic.title || "Generated Comic",
                 panels: serverPanels.map(p => ({
                   id: p.id,

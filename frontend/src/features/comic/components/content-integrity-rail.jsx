@@ -2,8 +2,6 @@
 
 import { FileText, Download, Loader2 } from "lucide-react";
 import { useState } from "react";
-import html2canvas from "html2canvas";
-import jsPDF from "jspdf";
 
 export default function ContentIntegrityRail({
   currentStep,
@@ -16,51 +14,29 @@ export default function ContentIntegrityRail({
   const [isExporting, setIsExporting] = useState(false);
 
   const handleExportPDF = async () => {
-    // We look for all panel containers
-    const panels = document.querySelectorAll('[id^="comic-panel-"]');
-    if (panels.length === 0) return;
+    if (!projectData?.id || !comicData?.id) {
+       alert("Missing project or comic context required for export.");
+       return;
+    }
 
     setIsExporting(true);
     try {
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "mm",
-        format: "a4",
+      const res = await fetch(`http://localhost:8000/projects/${projectData.id}/comics/${comicData.id}/export`, {
+        method: "POST"
       });
-
-      const pdfWidth = 210;
-      const pdfPageHeight = 297;
-
-      for (let i = 0; i < panels.length; i++) {
-        const panel = panels[i];
-
-        // Capture each panel at high resolution
-        const canvas = await html2canvas(panel, {
-          scale: 2,
-          useCORS: true,
-          backgroundColor: "#ffffff",
-          logging: false,
-        });
-
-        const imgData = canvas.toDataURL("image/png");
-        const imgWidth = pdfWidth - 20; // 10mm margin on each side
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-        // Add a new page if it's not the first one
-        if (i > 0) pdf.addPage();
-
-        // Center the panel on the A4 page
-        const xOffset = 10;
-        const yOffset = Math.max(10, (pdfPageHeight - imgHeight) / 2);
-
-        pdf.addImage(imgData, "PNG", xOffset, yOffset, imgWidth, imgHeight);
+      const data = await res.json();
+      
+      if (data.status === "success" && data.pdf_url) {
+        // Open the generated PDF in a new tab
+        window.open(data.pdf_url, "_blank");
+      } else {
+        console.error("Server returned fail:", data);
+        alert("Failed to compile PDF on the server.");
       }
-
-      pdf.save(`${projectTitle.replace(/\s+/g, "_")}_Comic_Flow.pdf`);
     } catch (error) {
       console.error("Failed to generate PDF:", error);
       alert(
-        "Failed to generate PDF. Make sure all images have finished loading.",
+        "Network error: Failed to reach the export service.",
       );
     } finally {
       setIsExporting(false);
