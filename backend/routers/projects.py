@@ -340,39 +340,91 @@ async def update_graph_positions(project_id: str, payload: GraphPositionsPayload
         logger.error(f"[Projects] Graph positions update error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+class AvatarGenerateRequest(BaseModel):
+    """Optional user-supplied visual details sent from the Avatar Wizard modal."""
+    visual_description: Optional[str] = None   # freeform appearance notes
+    age: Optional[str] = None
+    clothing: Optional[str] = None
+    art_style: Optional[str] = None            # e.g. "graphic novel noir", "anime"
+
+
 @router.post("/{project_id}/characters/{char_name}/generate-image")
-async def trigger_character_image_gen(project_id: str, char_name: str):
+async def trigger_character_image_gen(
+    project_id: str,
+    char_name: str,
+    body: AvatarGenerateRequest = None,
+):
     """
-    Manually trigger DALL-E 3 image generation for a character.
-    Fetch description from Supabase first to provide context to the AI.
+    Trigger DALL-E 3 hd portrait generation for a character.
+    Merges story-bible data, NLP arc data, and user-supplied visual details
+    (from the Avatar Wizard modal) into one rich prompt for maximum accuracy.
+    Returns image_url + ai_visual_summary on success.
     """
     try:
-        # 1. Fetch character metadata for the prompt
-        # Check project_characters (Story Bible) first
-        res = supabase.table("project_characters").select("description, traits").eq("project_id", project_id).eq("name", char_name).maybe_single().execute()
-        
-        description = "A character in a narrative"
-        traits = []
-        
+        body = body or AvatarGenerateRequest()
+
+        # 1. Fetch existing metadata — Story Bible (project_characters)
+        description = ""
+        traits: list = []
+        res = supabase.table("project_characters").select(
+            "description, traits"
+        ).eq("project_id", project_id).eq("name", char_name).maybe_single().execute()
+
         if res and res.data:
-            description = res.data.get("description") or description
+            description = res.data.get("description") or ""
             traits = res.data.get("traits") or []
+
+        # 2. Enrich with NLP-extracted arc data if available
+        res2 = supabase.table("characters").select(
+            "arc_summary, last_known_emotion, role"
+        ).eq("project_id", project_id).ilike("name", char_name).maybe_single().execute()
+
+        if res2 and res2.data:
+            arc = res2.data.get("arc_summary")
+            emotion = res2.data.get("last_known_emotion")
+            role = res2.data.get("role")
+            # Append NLP context to description if not already captured
+            extra = []
+            if not description and role:
+                extra.append(f"Narrative role: {role}")
+            if arc:
+                extra.append(f"Character arc: {arc}")
+            if emotion:
+                extra.append(f"Dominant emotion: {emotion}")
+            if extra:
+                description = (description + " " + "; ".join(extra)).strip()
+
+        # 3. Trigger generation with all merged context
+        result = await generate_character_image(
+            project_id=project_id,
+            char_name=char_name,
+            description=description,
+            traits=traits,
+            visual_description=body.visual_description or "",
+            age=body.age or "",
+            clothing=body.clothing or "",
+            art_style=body.art_style or "",
+        )
+
+        # generate_character_image now returns a tuple (image_url, ai_visual_summary)
+        if isinstance(result, tuple):
+            public_url, ai_visual_summary = result
         else:
-            # Check characters (extracted)
-            res2 = supabase.table("characters").select("role, name").eq("project_id", project_id).eq("name", char_name).maybe_single().execute()
-            if res2 and res2.data:
-                description = f"A {res2.data.get('role', 'character')} named {char_name}"
+            public_url, ai_visual_summary = result, ""
 
-        # 2. Trigger generation
-        public_url = await generate_character_image(project_id, char_name, description, traits)
-        
         if not public_url:
-            raise HTTPException(status_code=500, detail="DALL-E generation failed")
-            
-        return {"status": "ok", "image_url": public_url}
+            raise HTTPException(status_code=500, detail="DALL-E generation failed. Check OPENAI_API_KEY and backend logs.")
 
+        return {
+            "status": "ok",
+            "image_url": public_url,
+            "ai_visual_summary": ai_visual_summary,
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"[Projects] Manual image gen failed: {e}", exc_info=True)
+        logger.error(f"[Projects] Avatar gen failed for '{char_name}': {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 async def _index_dna(project_id: str, text: str, filename: str):

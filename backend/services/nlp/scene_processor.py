@@ -168,15 +168,6 @@ async def run_scene_nlp(scene_id: str, project_id: str) -> dict:
                     "last_known_location": extraction.scene_locations[-1] if extraction.scene_locations else None,
                     "user_defined": False,
                 }).execute()
-
-                # ── Auto-Generate AI Avatar for Discovered Character ──
-                if res.data:
-                    from services.images.dalle_service import generate_character_image
-                    from lib.worker import fire_and_forget
-                    fire_and_forget(
-                        generate_character_image(project_id, char_name, description="Newly discovered character"),
-                        task_name=f"dalle_gen_{project_id}_{char_name}"
-                    )
         except Exception as e:
             logger.warning(f"[Processor] Character update failed for '{char_name}': {e}")
 

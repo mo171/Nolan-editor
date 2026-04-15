@@ -1,13 +1,15 @@
 "use client";
 
 import React, { useState } from "react";
+import { useParams } from "next/navigation";
+import Link from "next/link";
 import ComicWorkflow from "@/features/comic/components/comic-workflow";
 import ContentIntegrityRail from "@/features/comic/components/content-integrity-rail";
 import { useProjectData } from "@/hooks/useProjectData";
 
-export default function ComicPage({ params }) {
-  const unwrappedParams = React.use(params);
-  const projectId = unwrappedParams?.projectId;
+export default function ComicPage() {
+  const params = useParams();
+  const projectId = params?.projectId;
   
   const { projectData, isLoading } = useProjectData(projectId);
   
@@ -78,9 +80,9 @@ export default function ComicPage({ params }) {
           })}
         </div>
 
-        <button className="text-white/50 hover:text-white transition-colors">
+        <Link href={`/editor/${projectId}`} className="text-white/50 hover:text-white transition-colors" title="Back to Editor">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-        </button>
+        </Link>
       </div>
 
       {/* MAIN CONTENT AREA */}

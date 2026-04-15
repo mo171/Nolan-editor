@@ -25,7 +25,7 @@ async def get_project_characters(project_id: str):
     try:
         # User-defined characters (created at Project Setup Wizard)
         res_user = supabase.table("project_characters").select(
-            "id, name, role, description, traits, user_defined, created_at"
+            "id, name, role, description, traits, user_defined, created_at, image_url, ai_visual_summary"
         ).eq("project_id", project_id).order("created_at").execute()
 
         project_chars = res_user.data or []
@@ -34,7 +34,7 @@ async def get_project_characters(project_id: str):
         # Auto-extracted characters (populated by spaCy NLP pipeline after scenes are saved)
         res_extracted = supabase.table("characters").select(
             "id, name, aliases, arc_summary, last_known_location, last_known_emotion, "
-            "total_mentions, first_seen_scene_id"
+            "total_mentions, first_seen_scene_id, image_url"
         ).eq("project_id", project_id).order("total_mentions", desc=True).execute()
 
         extracted_chars_all = res_extracted.data or []
@@ -50,6 +50,9 @@ async def get_project_characters(project_id: str):
                 pc["last_known_location"] = ext_c.get("last_known_location")
                 pc["last_known_emotion"] = ext_c.get("last_known_emotion")
                 pc["total_mentions"] = ext_c.get("total_mentions")
+                # Don't overwrite image_url if user already generated it in project_characters
+                if not pc.get("image_url") and ext_c.get("image_url"):
+                    pc["image_url"] = ext_c.get("image_url")
             else:
                 extracted_chars.append(ext_c)
 

@@ -14,11 +14,13 @@ import {
   MoreHorizontal,
   FolderOpen,
   Network,
+  Sparkles,
 } from "lucide-react";
 import { useEditorContext } from "@/features/editor/context/editor-context";
 import { useParams } from "next/navigation";
 import { useCharacters } from "@/hooks/useCharacters";
 import { useTimeline } from "@/hooks/useTimeline";
+import { AvatarWizardModal } from "./avatar-wizard-modal";
 
 function SceneItem({ scene, chapter, isActive }) {
   const { setActiveScene, updateSceneTitle } = useEditorContext();
@@ -208,7 +210,7 @@ function CharacterCard({ c, isExtracted }) {
   const traits = c.traits || [];
   const emotionKey = (c.last_known_emotion || "neutral").toLowerCase();
   const emotionDot = EMOTION_COLORS[emotionKey] || EMOTION_COLORS.neutral;
-  const hasDetails = c.description || traits.length > 0 || c.arc_summary || c.last_known_emotion;
+  const hasDetails = c.description || traits.length > 0 || c.arc_summary || c.last_known_emotion || c.ai_visual_summary;
 
   return (
     <div
@@ -216,9 +218,14 @@ function CharacterCard({ c, isExtracted }) {
       onClick={() => hasDetails && setExpanded((e) => !e)}
     >
       <div className="flex items-center gap-3 px-3 py-2.5">
-        <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getGradient(c.name)} flex items-center justify-center text-black text-[10px] font-bold flex-shrink-0 shadow-md`}>
-          {getInitials(c.name).toUpperCase()}
-        </div>
+        {c.image_url ? (
+          <img src={c.image_url} alt={c.name}
+            className="w-8 h-8 rounded-full object-cover ring-2 ring-[#ba9eff]/30 shadow-md flex-shrink-0" />
+        ) : (
+          <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getGradient(c.name)} flex items-center justify-center text-black text-[10px] font-bold flex-shrink-0 shadow-md`}>
+            {getInitials(c.name).toUpperCase()}
+          </div>
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-semibold text-white/85 truncate">{c.name}</span>
@@ -246,9 +253,13 @@ function CharacterCard({ c, isExtracted }) {
             className="overflow-hidden"
           >
             <div className="px-3 pb-3 space-y-2 border-t border-white/5 pt-2">
-              {c.description && (
+              {c.ai_visual_summary ? (
+                <p className="text-[11px] text-[#ba9eff]/60 italic leading-relaxed border-l-2 border-[#ba9eff]/20 pl-2">
+                  ✦ {c.ai_visual_summary}
+                </p>
+              ) : c.description ? (
                 <p className="text-[11px] text-white/55 leading-relaxed">{c.description}</p>
-              )}
+              ) : null}
               {traits.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                   {traits.slice(0, 5).map((t) => (
@@ -277,7 +288,13 @@ function CharacterCard({ c, isExtracted }) {
 function CharactersPanel() {
   const params = useParams();
   const projectId = params?.projectId;
-  const { projectCharacters, extractedCharacters, isLoading } = useCharacters(projectId);
+  const { projectCharacters, extractedCharacters, isLoading, refetch } = useCharacters(projectId);
+  const [wizardOpen, setWizardOpen] = useState(false);
+
+  // Characters without an image generated yet
+  const allChars = [...(projectCharacters || []), ...(extractedCharacters || [])];
+  const pendingChars = allChars.filter(c => !c.image_url);
+  const pendingCount = pendingChars.length;
 
   if (isLoading) {
     return (
@@ -308,9 +325,31 @@ function CharactersPanel() {
           No characters yet. Start typing to discover them.
         </div>
       )}
-      <button className="flex items-center gap-2.5 w-full px-4 py-3 text-xs font-medium text-white/25 hover:text-primary/70 transition-all rounded-xl hover:bg-white/5 mt-2">
+
+      {pendingCount > 0 && (
+        <button 
+          onClick={() => setWizardOpen(true)}
+          className="flex items-center justify-center gap-2 w-full px-4 py-2 mt-2 text-[10px] font-bold uppercase tracking-widest text-[#ba9eff] bg-[#ba9eff]/10 border border-[#ba9eff]/20 rounded-xl hover:bg-[#ba9eff]/20 hover:border-[#ba9eff]/40 transition-all shadow-[0_0_15px_rgba(186,158,255,0.1)]"
+        >
+          <Sparkles size={13} />
+          Generate Avatars
+          <span className="bg-[#ba9eff] text-black text-[9px] rounded-full px-1.5 py-0.5 leading-none shadow-sm font-extrabold flex items-center justify-center min-w-[20px]">
+            {pendingCount}
+          </span>
+        </button>
+      )}
+
+      <button className="flex items-center justify-center gap-2 w-full px-4 py-2 mt-2 text-xs font-medium text-white/40 border border-white/5 hover:text-white transition-all rounded-xl hover:bg-white/5">
         <Plus size={14} /> Add Character
       </button>
+
+      <AvatarWizardModal
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        projectId={projectId}
+        pendingChars={pendingChars}
+        onSuccess={() => refetch()}
+      />
     </div>
   );
 }

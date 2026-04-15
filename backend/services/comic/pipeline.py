@@ -19,20 +19,23 @@ async def process_scene(text: str) -> dict:
     Step 1: Convert raw scene text into structured JSON.
     """
     system_prompt = """
-    You are an expert comic book director. Extract the core visual and structural elements from the provided scene text for a single dramatic comic panel.
+    You are an expert comic book director. Your job is to faithfully extract the exact visual and structural elements from the provided scene text for a single dramatic comic panel.
     
     CRITICAL RULES:
     1. DIALOGUE: Extract ONLY the 1-2 most impactful lines of dialogue. Do not include background chatter or minor lines.
-    2. SAFETY: If the scene contains violence or sensitive topics, rewrite the visual descriptions (action, location) into stylized, cinematic metaphors that are safe for use with DALL-E 3 (e.g., instead of "bloody fight", use "dramatic red lighting and intense shadows during a stylized confrontation").
-    3. POSITIONING: Spread out speech_bubbles coordinates (x: 10-90, y: 10-90). Avoid the center (50, 50). If there are two bubbles, place them on opposite sides (e.g., x=20/y=20 and x=80/y=30).
+    2. FAITHFUL REPRESENTATION: Capture the scene EXACTLY as described — the environment, setting, atmosphere, character appearances, and actions. Do NOT sanitize, soften, abstract, or rewrite any visual details. Preserve the author's intended mood and visual style completely.
+    3. ENVIRONMENT & SETTING: Be highly specific and descriptive about the location. Include architectural details, weather, lighting conditions, time period, and any environmental elements that define the scene.
+    4. CHARACTER DETAILS: Include specific physical descriptions, clothing, expressions, and poses of each character as described or strongly implied by the text.
+    5. POSITIONING: Spread out speech_bubbles coordinates (x: 10-90, y: 10-90). Avoid the center (50, 50). If there are two bubbles, place them on opposite sides (e.g., x=20/y=20 and x=80/y=30).
     
     Return a JSON object strictly matching this format:
     {
         "characters": ["name1", "name2"],
+        "character_details": "detailed visual description of each character's appearance, clothing, expression",
         "emotion": "dominant emotion",
-        "location": "setting description",
-        "time": "time of day",
-        "action": "brief description of physical action",
+        "location": "highly detailed setting description with architecture, environment, atmosphere",
+        "time": "time of day and lighting conditions",
+        "action": "precise description of physical action and body language",
         "caption_top": "narrator style text describing the start",
         "caption_bottom": "narrator style text describing the end or result",
         "speech_bubbles": [
@@ -63,45 +66,52 @@ async def process_scene(text: str) -> dict:
 
 def generate_prompt(structured: dict) -> str:
     """
-    Step 2: Convert structured JSON into an image generation prompt.
+    Step 2: Convert structured JSON into a rich, faithful image generation prompt.
+    Captures exact scene environment, setting, and character details as described.
     """
-    chars = ", ".join(structured.get("characters", []))
+    chars = ", ".join(structured.get("characters", [])) or "a lone figure"
+    char_details = structured.get("character_details", "")
     location = structured.get("location", "an empty background")
     time = structured.get("time", "daytime")
     action = structured.get("action", "standing")
     emotion = structured.get("emotion", "neutral")
     
+    # Build a rich, layered prompt that faithfully encodes the scene
+    char_block = f"{chars}"
+    if char_details:
+        char_block += f" — {char_details}"
+    
     prompt = (
-        f"A cinematic high-quality comic book illustration of {chars} {action}. "
-        f"The setting is {location} during {time}. Overall emotional atmosphere is {emotion}. "
-        "Intense sharp line art, vibrant colors, dramatic lighting, graphic novel style. No text or speech bubbles."
+        f"Comic book illustration panel. Characters: {char_block}. "
+        f"Scene: {action}. "
+        f"Environment: {location}. "
+        f"Lighting & time: {time}. "
+        f"Mood & atmosphere: {emotion}. "
+        f"Style: cinematic graphic novel, sharp expressive ink lines, rich detailed backgrounds, "
+        f"dramatic chiaroscuro lighting, vibrant color grading, 8K high-fidelity comic art. "
+        f"No text, no speech bubbles, no captions in the image."
     )
     return prompt
 
-async def generate_image(prompt: str, retry_safe: bool = True) -> str:
+async def generate_image(prompt: str) -> str:
     """
-    Step 3: Generate the image via DALL-E 3 (or fallback to placeholder).
+    Step 3: Generate the image via DALL-E 3 using the exact described prompt.
+    No safety rewriting — the prompt is sent as-is to faithfully capture the
+    scene environment, setting, and characters described by the user.
     """
     try:
+        logger.info(f"[DALL-E] Generating image with prompt: {prompt[:120]}...")
         response = await client.images.generate(
             model="dall-e-3",
             prompt=prompt,
             size="1024x1024",
-            quality="standard",
+            quality="hd",
             n=1,
         )
         return response.data[0].url
     except Exception as e:
-        # Check if it was a safety rejection
-        error_str = str(e)
-        if "content_policy_violation" in error_str and retry_safe:
-            logger.warning("DALL-E safety rejection. Retrying with abstracted safe prompt.")
-            # Create a highly abstracted/safe version of the prompt
-            safe_prompt = "A stylized, cinematic abstract comic book panel with dramatic lighting and colors, expressive atmosphere, graphic novel ink style, high quality."
-            return await generate_image(safe_prompt, retry_safe=False)
-            
-        logger.error(f"Error generating image: {e}")
-        # Return a placeholder if generation fails (e.g. no API key)
+        logger.error(f"[DALL-E] Image generation failed: {e}")
+        # Return a placeholder only on a hard failure (e.g. API key missing, network error)
         return "https://placehold.co/1024x1024/1e1e24/ba9eff?text=Generation+Failed"
 
 import uuid

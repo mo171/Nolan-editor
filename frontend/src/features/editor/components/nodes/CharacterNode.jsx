@@ -19,10 +19,9 @@ const CharacterNode = ({ data, id: nodeId, selected }) => {
         method: 'POST'
       }, token);
       
-      // Force a re-fetch of the graph in the parent if possible, but for now 
-      // the user will see it on next load or refresh.
-      // In a real app we'd trigger a context refresh here.
-      window.location.reload(); // Simple refresh to show the new image
+      if (data.onRefreshGraph) {
+        data.onRefreshGraph();
+      }
     } catch (err) {
       console.error("Failed to generate character image:", err);
     } finally {
@@ -51,10 +50,8 @@ const CharacterNode = ({ data, id: nodeId, selected }) => {
           />
         ) : (
           <div 
-            onClick={handleGenerate}
             className={`
               w-full h-full flex flex-col items-center justify-center gap-2 text-white/20 transition-all 
-              ${!isGenerating ? 'cursor-pointer hover:bg-white/5 hover:text-white/40' : ''}
             `}
           >
             {isGenerating ? (
@@ -63,7 +60,7 @@ const CharacterNode = ({ data, id: nodeId, selected }) => {
               <>
                 <Sparkles size={24} />
                 <span className="text-[9px] uppercase tracking-tighter">AI Vision Pending</span>
-                <span className="text-[7px] text-white/40 opacity-0 group-hover:opacity-100 transition-opacity">Click to Reveal</span>
+                <span className="text-[7px] text-white/40 opacity-0 group-hover:opacity-100 transition-opacity">Use Sidebar Wizard</span>
               </>
             )}
           </div>

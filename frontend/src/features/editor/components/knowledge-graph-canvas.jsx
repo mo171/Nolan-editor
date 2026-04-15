@@ -43,13 +43,21 @@ const KnowledgeGraphCanvas = ({ projectId }) => {
       
       // Basic Grid Layout for nodes with 0,0 position
       const processedNodes = data.nodes.map((node, index) => {
+        let newNode = node;
         if (node.position.x === 0 && node.position.y === 0) {
-          return {
+          newNode = {
             ...node,
             position: { x: (index % 4) * 300, y: Math.floor(index / 4) * 400 }
           };
         }
-        return node;
+        
+        if (newNode.type === 'Character') {
+          newNode.data = {
+            ...newNode.data,
+            onRefreshGraph: fetchGraph
+          };
+        }
+        return newNode;
       });
 
       // Enhance edges with consistent Styling
