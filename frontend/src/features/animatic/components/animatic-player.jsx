@@ -48,8 +48,8 @@ export function AnimaticPlayer({ data, onClose }) {
   useEffect(() => {
     if (!currentSegment || !isPlaying || isFinished) return;
 
-    segmentAudioRef.current = new Audio(currentSegment.audio_url);
-    segmentAudioRef.current.play().catch(e => console.error("Segment audio error", e));
+    const audio = new Audio(currentSegment.audio_url);
+    segmentAudioRef.current = audio;
 
     const handleEnded = () => {
       if (currentSegmentIndex < currentPanel.segments.length - 1) {
@@ -62,8 +62,27 @@ export function AnimaticPlayer({ data, onClose }) {
       }
     };
 
+    // Safety check for browser support/loading
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      playPromise.catch(e => {
+        console.warn("[Animatic] Audio playback suppressed or source not found:", e);
+        // If audio fails, we still want to show the caption for a brief period then move on
+        const fallbackTimer = setTimeout(() => {
+          handleEnded();
+        }, 3000); // 3-second silence fallback
+        return () => clearTimeout(fallbackTimer);
+      });
+    }
+
     segmentAudioRef.current.addEventListener("ended", handleEnded);
     
+    // Pre-load next image if available
+    if (currentPanelIndex < panels.length - 1) {
+      const nextImg = new Image();
+      nextImg.src = panels[currentPanelIndex + 1].image_url;
+    }
+
     return () => {
       if (segmentAudioRef.current) {
         segmentAudioRef.current.pause();

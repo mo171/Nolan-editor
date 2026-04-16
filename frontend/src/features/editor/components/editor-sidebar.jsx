@@ -23,9 +23,8 @@ import { useTimeline } from "@/hooks/useTimeline";
 import { AvatarWizardModal } from "./avatar-wizard-modal";
 
 function SceneItem({ scene, chapter, isActive }) {
-  const { setActiveScene, updateSceneTitle } = useEditorContext();
+  const { setActiveScene, updateSceneTitle, deleteScene } = useEditorContext();
   const [editing, setEditing] = useState(false);
-  const [showMenu, setShowMenu] = useState(false);
 
   return (
     <div
@@ -52,14 +51,22 @@ function SceneItem({ scene, chapter, isActive }) {
       ) : (
         <span className="text-xs flex-1 truncate">{scene.title}</span>
       )}
-      {isActive && (
+      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
-          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-white/10 transition-all"
+          className="p-0.5 rounded hover:bg-white/10 text-white/40 hover:text-white transition-all"
           onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+          title="Rename scene"
         >
           <MoreHorizontal size={12} />
         </button>
-      )}
+        <button
+          className="p-0.5 rounded hover:bg-red-500/20 text-white/40 hover:text-red-400 transition-all"
+          onClick={(e) => { e.stopPropagation(); deleteScene(chapter.id, scene.id); }}
+          title="Delete scene"
+        >
+          <Trash2 size={12} />
+        </button>
+      </div>
     </div>
   );
 }

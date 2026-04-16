@@ -89,27 +89,21 @@ class AnimatePipeline:
         Breaks a single scene into 2-3 cinematic shots for a half-animation feel.
         """
         system_prompt = """
-        You are a cinematic director. Break the following scene text into 2-3 distinct "Shots".
+        You are a literal cinematic director. Your task is to faithfully deconstruct the provided scene text into 2-3 distinct "Shots" for an animatic film.
+        
+        CRITICAL FAITHFULNESS RULES:
+        1. DO NOT add characters, items, or plot points not present in the text.
+        2. DO NOT summarize. Map EVERY sentence of activity or dialogue to a specific shot.
+        3. CHRONOLOGICAL ORDER: The shots MUST follow the exact order of events in the text.
+        4. ART FORM: This is for a cinematic graphic novel. 
+        5. DIRECT DIRECTOR VISION: Provide clear visual instructions (lighting, angles, character proximity).
+        
         For each shot, provide:
         - visual_description: A detailed cinematic prompt for 16:9 widescreen.
         - shot_type: Establishing, Close-up, Wide, or Medium.
-        - segments: A list of narration/dialogue lines occurring in this specific shot.
+        - segments: A list of narration/dialogue lines occurring in this specific shot. Every line of dialogue from the text MUST be accounted for.
         
-        DIALOGUE RULES: Every line of dialogue from the text MUST be accounted for in a shot. 
-        If a line is spoken, include "speaker" and "text".
-        
-        Return a JSON array of shots.
-        Format:
-        [
-          {
-            "visual_description": "...",
-            "shot_type": "...",
-            "segments": [
-               {"type": "narration", "text": "..."},
-               {"type": "dialogue", "speaker": "...", "text": "..."}
-            ]
-          }
-        ]
+        Return a JSON object with a "shots" key containing the array.
         """
         
         try:
@@ -143,8 +137,11 @@ class AnimatePipeline:
         try:
             endpoint = "https://api.stability.ai/v2beta/stable-image/generate/core"
             
+            # Use the exact same style as the comic generator for visual consistency
+            comic_style = "cinematic graphic novel, sharp expressive ink lines, rich detailed backgrounds, dramatic chiaroscuro lighting, vibrant color grading, 8K high-fidelity comic art"
+            
             data = {
-                "prompt": prompt + ", cinematic 16:9 widescreen, highly detailed, professional lighting, consistent character art style",
+                "prompt": f"{prompt}. Style: {comic_style}. 16:9 Cinemascope focus, high-fidelity film frame.",
                 "output_format": "png",
                 "aspect_ratio": "16:9"
             }

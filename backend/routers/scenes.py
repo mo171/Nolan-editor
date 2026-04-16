@@ -203,6 +203,13 @@ async def get_scene_analysis(scene_id: str):
 async def delete_scene(scene_id: str):
     try:
         await cache.invalidate_scene(scene_id)
+        
+        # Safety: Nullify character references to this specific scene
+        supabase.table("characters")\
+            .update({"first_seen_scene_id": None})\
+            .eq("first_seen_scene_id", scene_id)\
+            .execute()
+            
         supabase.table("scenes").delete().eq("id", scene_id).execute()
         logger.info(f"[Scenes] Deleted scene={scene_id}")
     except Exception as e:

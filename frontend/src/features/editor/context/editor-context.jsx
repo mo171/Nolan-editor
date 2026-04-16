@@ -285,6 +285,37 @@ export function EditorProvider({ children }) {
     [updateState]
   );
 
+  const deleteScene = useCallback(
+    (chapterId, sceneId) => {
+      let nextSceneId = null;
+      
+      updateState((prev) => {
+        const chapter = prev.chapters.find((c) => c.id === chapterId);
+        if (!chapter) return prev;
+
+        const scenes = chapter.scenes.filter((s) => s.id !== sceneId);
+        
+        // Find next active scene if we deleted the current one
+        if (prev.activeSceneId === sceneId) {
+          const deletedIndex = chapter.scenes.findIndex(s => s.id === sceneId);
+          const nextScene = scenes[deletedIndex] || scenes[deletedIndex - 1] || null;
+          nextSceneId = nextScene?.id;
+        }
+
+        return {
+          ...prev,
+          chapters: prev.chapters.map((c) =>
+            c.id === chapterId ? { ...c, scenes } : c
+          ),
+          activeSceneId: nextSceneId || prev.activeSceneId
+        };
+      });
+      
+      if (projectId) ops.deleteScene(sceneId).catch(console.error);
+    },
+    [updateState, projectId, ops]
+  );
+
   const setActiveScene = useCallback((chapterId, sceneId) => {
     setState((prev) => ({ ...prev, activeChapterId: chapterId, activeSceneId: sceneId }));
   }, []);
@@ -415,6 +446,7 @@ export function EditorProvider({ children }) {
     updateChapterTitle,
     toggleChapterExpanded,
     addScene,
+    deleteScene,
     updateSceneContent,
     updateSceneTitle,
     setActiveScene,

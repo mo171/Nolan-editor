@@ -111,10 +111,22 @@ async def delete_chapter(chapter_id: str):
     Deletes chapter. All scenes cascade-deleted via DB constraint.
     """
     try:
-        # Get project_id for cache invalidation before deletion
+        # 1. Get project_id for cache invalidation
         ch_res = supabase.table("chapters").select("project_id").eq("id", chapter_id).single().execute()
         project_id = ch_res.data["project_id"] if ch_res.data else None
 
+        # 2. Safety: Find all scenes in this chapter
+        scenes_res = supabase.table("scenes").select("id").eq("chapter_id", chapter_id).execute()
+        scene_ids = [s["id"] for s in (scenes_res.data or [])]
+
+        if scene_ids:
+            # 3. Nullify character references to these scenes
+            supabase.table("characters")\
+                .update({"first_seen_scene_id": None})\
+                .in_("first_seen_scene_id", scene_ids)\
+                .execute()
+
+        # 4. Perform the deletion (scenes will cascade delete)
         supabase.table("chapters").delete().eq("id", chapter_id).execute()
 
         if project_id:
