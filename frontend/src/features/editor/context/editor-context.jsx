@@ -65,6 +65,11 @@ export function EditorProvider({ children }) {
   const [activeView, setActiveView] = useState("editor"); // 'editor' | 'graph'
   const [isReady, setIsReady] = useState(false);
   
+  // Animatic State
+  const [isAnimaticGenerating, setIsAnimaticGenerating] = useState(false);
+  const [animaticData, setAnimaticData] = useState(null);
+  const [isAnimaticPlaybackOpen, setIsAnimaticPlaybackOpen] = useState(false);
+  
   const initializedRef = useRef(false);
 
   // Load from backend
@@ -343,6 +348,44 @@ export function EditorProvider({ children }) {
     updateState((prev) => ({ ...prev, ghostTextEnabled: enabled }));
   }, [updateState]);
 
+  // ─── Animatic Actions ─────────────────────────────────────────────────────
+  const generateAnimatic = useCallback(async (characterVoices = {}) => {
+    if (!projectId || !state.chapters.length) return;
+    
+    setIsAnimaticGenerating(true);
+    try {
+      // Gather all scene IDs from all chapters for a full chapter/story playback
+      // For now, let's just do the active chapter's scenes or all scenes.
+      const sceneIds = state.chapters.flatMap(ch => ch.scenes.map(s => s.id));
+      
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/animate/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: projectId,
+          scene_ids: sceneIds,
+          character_voices: characterVoices
+        })
+      });
+      
+      if (!response.ok) throw new Error("Failed to generate animatic");
+      
+      const data = await response.json();
+      setAnimaticData(data);
+      setIsAnimaticPlaybackOpen(true);
+    } catch (err) {
+      console.error("[Animatic] Generation failed:", err);
+      // We could add a toast here
+    } finally {
+      setIsAnimaticGenerating(false);
+    }
+  }, [projectId, state.chapters]);
+
+  const closeAnimaticPlayback = useCallback(() => {
+    setIsAnimaticPlaybackOpen(false);
+    // Optional: setAnimaticData(null) if we want to clear it
+  }, []);
+
   // ─── Derived values ───────────────────────────────────────────────────────
   const activeChapter = state.chapters.find((c) => c.id === state.activeChapterId) ?? state.chapters[0];
   const activeScene =
@@ -389,6 +432,13 @@ export function EditorProvider({ children }) {
     // View
     activeView,
     setActiveView,
+
+    // Animatic
+    isAnimaticGenerating,
+    animaticData,
+    isAnimaticPlaybackOpen,
+    generateAnimatic,
+    closeAnimaticPlayback
   };
 
   if (!isReady) {

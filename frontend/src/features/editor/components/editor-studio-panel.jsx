@@ -18,7 +18,10 @@ import {
   Check,
   AlertCircle,
   Lightbulb,
-  ShieldAlert
+  ShieldAlert,
+  Film,
+  PlayCircle,
+  Loader2
 } from "lucide-react";
 import { useEditorContext } from "@/features/editor/context/editor-context";
 
@@ -77,6 +80,15 @@ const STUDIO_GRID = [
     iconColor: "text-orange-400",
     glow: "rgba(251,146,60,0.15)",
   },
+  {
+    id: "animate",
+    icon: Film,
+    label: "Animate Story",
+    description: "Narrated slideshow",
+    color: "from-indigo-400/20 to-indigo-400/5",
+    iconColor: "text-indigo-400",
+    glow: "rgba(129,140,248,0.15)",
+  },
 ];
 
 const AUDIO_LANGS = ["हिन्दी", "বাংলা", "ਕਾਤਲਾ", "ಕನ್ನಡ", "मराठी", "বাংলা..."];
@@ -107,7 +119,38 @@ function StudioCard({ item }) {
 }
 
 export function EditorStudioPanel() {
-  const { studioPanelOpen, setStudioPanelOpen, activeMode, activeSuggestion, setActiveSuggestion } = useEditorContext();
+  const { 
+    studioPanelOpen, 
+    setStudioPanelOpen, 
+    activeMode, 
+    activeSuggestion, 
+    setActiveSuggestion,
+    generateAnimatic,
+    isAnimaticGenerating,
+    chapters
+  } = useEditorContext();
+
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
+  const [characterVoices, setCharacterVoices] = useState({});
+  const [availableVoices, setAvailableVoices] = useState({});
+
+  // Fetch voices when opening modal
+  const openVoiceModal = async () => {
+    setIsVoiceModalOpen(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/animate/voices`);
+      const voices = await res.json();
+      setAvailableVoices(voices);
+    } catch (e) {
+      console.error("Failed to fetch voices", e);
+    }
+  };
+
+  const handleStartAnimation = () => {
+    // We pass null or empty characterVoices to trigger the backend's Auto-Caster
+    generateAnimatic({});
+    setIsVoiceModalOpen(false);
+  };
 
   // Helper to map linter types to colors/icons
   const getLinterConfig = (type) => {
@@ -291,7 +334,20 @@ export function EditorStudioPanel() {
               <>
                 <div className="grid grid-cols-2 gap-2">
                   {STUDIO_GRID.map((item) => (
-                    <StudioCard key={item.id} item={item} />
+                    <motion.button
+                      key={item.id}
+                      onClick={() => item.id === "animate" ? openVoiceModal() : null}
+                      whileHover={{ scale: 1.03, y: -2 }}
+                      whileTap={{ scale: 0.97 }}
+                      className={`relative group flex flex-col items-center justify-center gap-2 p-3 rounded-xl bg-gradient-to-b ${item.color} border border-white/5 hover:border-white/10 transition-all duration-200 overflow-hidden`}
+                    >
+                       <div className={`p-2 rounded-lg bg-[#0e0e11]/50 ${item.iconColor}`}>
+                        <item.icon size={16} />
+                      </div>
+                      <span className="text-xs font-semibold text-white/70 group-hover:text-white/90 transition-colors text-center leading-tight">
+                        {item.label}
+                      </span>
+                    </motion.button>
                   ))}
                 </div>
 
@@ -335,6 +391,74 @@ export function EditorStudioPanel() {
               Add note
             </motion.button>
           </div>
+
+          {/* Voice Selection Modal */}
+          <AnimatePresence>
+            {isVoiceModalOpen && (
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+              >
+                <motion.div 
+                   initial={{ scale: 0.9, y: 20 }}
+                   animate={{ scale: 1, y: 0 }}
+                   className="bg-[#131316] border border-white/10 w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl"
+                >
+                  <div className="p-4 border-b border-white/5 flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Mic size={16} className="text-primary" />
+                      Cast Your Story
+                    </h3>
+                    <button onClick={() => setIsVoiceModalOpen(false)} className="text-white/40 hover:text-white">
+                      <X size={16} />
+                    </button>
+                  </div>
+                  
+                  <div className="p-4 space-y-4 max-h-[60vh] overflow-y-auto">
+                    <p className="text-[11px] text-white/50 leading-relaxed">
+                      Assign a high-fidelity AI voice to your characters for the animatic.
+                    </p>
+                    
+                    {/* Characters List */}
+                    <div className="space-y-3">
+                      {/* For now, we take unique characters from the story bible or context */}
+                      {["Narrator", "Protagonist", "Antagonist"].map((char) => (
+                        <div key={char} className="space-y-1.5">
+                          <label className="text-[10px] font-bold text-white/30 uppercase tracking-widest">{char}</label>
+                          <select 
+                            className="w-full bg-[#0e0e11] border border-white/5 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-primary/50 transition-all"
+                            value={characterVoices[char] || ""}
+                            onChange={(e) => setCharacterVoices({...characterVoices, [char]: e.target.value})}
+                          >
+                            <option value="">Select Voice...</option>
+                            {Object.entries(availableVoices).map(([id, meta]) => (
+                              <option key={id} value={id}>{meta.name} ({meta.gender})</option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-[#0e0e11]/50 border-t border-white/5">
+                    <button 
+                      onClick={handleStartAnimation}
+                      disabled={isAnimaticGenerating}
+                      className="w-full py-2.5 rounded-xl bg-primary text-white font-bold text-xs hover:bg-primary/80 transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
+                    >
+                      {isAnimaticGenerating ? <Loader2 size={14} className="animate-spin" /> : <PlayCircle size={14} />}
+                      {isAnimaticGenerating ? "Director is Casting..." : "Animate in 16:9 Cinematic Mode"}
+                    </button>
+                    <p className="mt-2 text-[9px] text-white/30 text-center uppercase tracking-widest font-bold">
+                      Using AI Auto-Casting & Multi-Shot Director
+                    </p>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.aside>
       )}
     </AnimatePresence>

@@ -12,6 +12,8 @@ import { EditorAiBar } from "@/features/editor/components/editor-ai-bar";
 import { BeatSheet } from "@/features/editor/components/beat-sheet";
 import KnowledgeGraphCanvas from "@/features/editor/components/knowledge-graph-canvas";
 import { useParams } from "next/navigation";
+import { AnimaticPlayer } from "@/features/animatic/components/animatic-player";
+import { Loader2 } from "lucide-react";
 
 function SidebarToggle({ side }) {
   const { sidebarOpen, setSidebarOpen, studioPanelOpen, setStudioPanelOpen } = useEditorContext();
@@ -37,7 +39,16 @@ function SidebarToggle({ side }) {
 }
 
 function EditorLayout() {
-  const { sidebarOpen, studioPanelOpen, activeMode, activeView } = useEditorContext();
+  const { 
+    sidebarOpen, 
+    studioPanelOpen, 
+    activeMode, 
+    activeView,
+    isAnimaticPlaybackOpen,
+    animaticData,
+    isAnimaticGenerating,
+    closeAnimaticPlayback
+  } = useEditorContext();
   const [tiptapEditor, setTiptapEditor] = useState(null);
   const params = useParams();
   const projectId = params?.projectId;
@@ -107,6 +118,37 @@ function EditorLayout() {
           <EditorStudioPanel />
         </div>
       </div>
+
+      {/* Global Modals / Overlays */}
+      <AnimatePresence>
+        {isAnimaticPlaybackOpen && animaticData && (
+          <AnimaticPlayer 
+            data={animaticData} 
+            onClose={closeAnimaticPlayback} 
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Global Generation Overlay */}
+      <AnimatePresence>
+        {isAnimaticGenerating && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-xl flex flex-col items-center justify-center text-center p-6"
+          >
+             <div className="relative mb-8">
+               <div className="absolute inset-0 bg-primary/20 rounded-full blur-3xl animate-pulse" />
+               <Loader2 size={64} className="text-primary animate-spin relative" />
+             </div>
+             <h2 className="text-2xl font-black text-white uppercase tracking-tighter mb-2">Generating Cinematic Animatic</h2>
+             <p className="text-white/40 text-[11px] font-bold uppercase tracking-widest max-w-xs leading-loose">
+               Nolan is decomposing your scenes, synthesizing high-fidelity voices, and choreographing the camera...
+             </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
