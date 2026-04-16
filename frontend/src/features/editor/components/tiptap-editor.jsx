@@ -201,6 +201,7 @@ export function TiptapEditor({ onEditorReady }) {
       editorRef.current.commands.unsetLinterMark(e.detail.id);
     };
 
+    window.addEventListener('nolan-apply-suggestion', handleApply);
     window.addEventListener('nolan-reject-suggestion', handleReject);
 
     // Neural Highlight Listener
