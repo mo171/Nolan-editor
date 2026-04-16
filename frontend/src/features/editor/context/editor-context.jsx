@@ -69,8 +69,19 @@ export function EditorProvider({ children }) {
   const [isAnimaticGenerating, setIsAnimaticGenerating] = useState(false);
   const [animaticData, setAnimaticData] = useState(null);
   const [isAnimaticPlaybackOpen, setIsAnimaticPlaybackOpen] = useState(false);
+
+  // Neural Analytics State
+  const [neuralStats, setNeuralStats] = useState(null);
+  const [isNeuralSyncing, setIsNeuralSyncing] = useState(false);
   
   const initializedRef = useRef(false);
+
+  // ─── Derived values ───────────────────────────────────────────────────────
+  const activeChapter = state.chapters.find((c) => c.id === state.activeChapterId) ?? state.chapters[0];
+  const activeScene =
+    activeChapter?.scenes.find((s) => s.id === state.activeSceneId) ?? activeChapter?.scenes[0];
+  const activeSceneIndex = activeChapter?.scenes.findIndex((s) => s.id === activeScene?.id) ?? 0;
+  const totalScenes = activeChapter?.scenes.length ?? 0;
 
   // Load from backend
   useEffect(() => {
@@ -417,12 +428,68 @@ export function EditorProvider({ children }) {
     // Optional: setAnimaticData(null) if we want to clear it
   }, []);
 
-  // ─── Derived values ───────────────────────────────────────────────────────
-  const activeChapter = state.chapters.find((c) => c.id === state.activeChapterId) ?? state.chapters[0];
-  const activeScene =
-    activeChapter?.scenes.find((s) => s.id === state.activeSceneId) ?? activeChapter?.scenes[0];
-  const activeSceneIndex = activeChapter?.scenes.findIndex((s) => s.id === activeScene?.id) ?? 0;
-  const totalScenes = activeChapter?.scenes.length ?? 0;
+  // ─── Neural Analytics Actions ─────────────────────────────────────────────
+  const syncNeuralStats = useCallback(async () => {
+    if (!projectId || !activeScene) return;
+    
+    setIsNeuralSyncing(true);
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/analytics/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: projectId,
+          scene_id: activeScene.id,
+          text: activeScene.content
+        })
+      });
+      
+      if (!response.ok) throw new Error("Failed to sync neural stats");
+      const data = await response.json();
+      const stats = data.stats;
+      setNeuralStats(stats);
+
+      // Create an actionable suggestion if the hook is weak
+      if (stats.hook_score < 0.6) {
+        setActiveSuggestion({
+          id: `neural-hook-${Date.now()}`,
+          type: "creative",
+          message: "Neural Analysis indicates a weak start. The Ventral Striatum (reward) response is low.",
+          suggestion: "Consider starting with a sensory 'Pattern Interrupt' or a narrative reveal in the first paragraph to spike reader curiosity.",
+          isNeural: true
+        });
+        setStudioPanelOpen(true);
+      }
+    } catch (err) {
+      console.error("[NeuralSync] Failed:", err);
+    } finally {
+      setIsNeuralSyncing(false);
+    }
+  }, [projectId, activeScene]);
+
+  const loadNeuralStats = useCallback(async (sceneId) => {
+    if (!sceneId) return;
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/analytics/scene/${sceneId}`);
+      if (!response.ok) return;
+      const data = await response.json();
+      if (data.status === "success" || data.id) {
+        setNeuralStats(data);
+      } else {
+        setNeuralStats(null);
+      }
+    } catch (err) {
+      console.error("[NeuralStats] Fetch failed:", err);
+    }
+  }, []);
+
+  // Auto-load stats when scene changes
+  useEffect(() => {
+    if (activeScene?.id) {
+      loadNeuralStats(activeScene.id);
+    }
+  }, [activeScene?.id, loadNeuralStats]);
+
 
   const value = {
     // State
@@ -470,7 +537,19 @@ export function EditorProvider({ children }) {
     animaticData,
     isAnimaticPlaybackOpen,
     generateAnimatic,
-    closeAnimaticPlayback
+    closeAnimaticPlayback,
+
+    // Neural
+    neuralStats,
+    isNeuralSyncing,
+    syncNeuralStats,
+
+    // Highlighting
+    triggerNeuralHighlight: (type, time = 0) => {
+      window.dispatchEvent(new CustomEvent("nolan-highlight-neural", { 
+        detail: { type, time } 
+      }));
+    }
   };
 
   if (!isReady) {

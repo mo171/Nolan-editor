@@ -31,7 +31,7 @@ export function TiptapEditor({ onEditorReady }) {
   const params = useParams();
   const projectId = params?.projectId;
 
-  const { activeScene, updateSceneContent, updateSceneMetadata, activeMode, setActiveSuggestion, setStudioPanelOpen, ghostTextEnabled } = useEditorContext();
+  const { activeScene, updateSceneContent, updateSceneMetadata, activeMode, setActiveSuggestion, setStudioPanelOpen, ghostTextEnabled, neuralStats } = useEditorContext();
   const ghostTimerRef = useRef(null);
   const editorRef = useRef(null);
 
@@ -201,12 +201,68 @@ export function TiptapEditor({ onEditorReady }) {
       editorRef.current.commands.unsetLinterMark(e.detail.id);
     };
 
-    window.addEventListener('nolan-apply-suggestion', handleApply);
     window.addEventListener('nolan-reject-suggestion', handleReject);
+
+    // Neural Highlight Listener
+    const handleNeuralHighlight = (e) => {
+      if (!editorRef.current) return;
+      const editor = editorRef.current;
+      const { type, time } = e.detail;
+
+      let from = -1;
+      let to = -1;
+
+      if (type === 'hook') {
+        // Find the first paragraph
+        const firstPara = editor.state.doc.firstChild;
+        if (firstPara && firstPara.isTextblock) {
+          from = 1; // start of first para
+          to = 1 + firstPara.nodeSize;
+        }
+      } else if (type === 'pacing' || (type === 'lull' && time)) {
+          // Estimated mapping: Time -> Word -> Char
+          // Assuming approx 150 words per minute = 2.5 words per second
+          // Let's use a rough estimate of 15 chars per second for screenwriting prose
+          const charOffset = Math.floor(time * 15);
+          const docSize = editor.state.doc.content.size;
+          from = Math.max(1, Math.min(charOffset, docSize - 10));
+          to = Math.min(from + 50, docSize); // highlight a chunk
+      }
+
+      if (from !== -1) {
+        // Scroll into view
+        editor.commands.focus();
+        const resolvedPos = editor.state.doc.resolve(from);
+        editor.view.dispatch(editor.state.tr.scrollIntoView());
+
+        // Apply a temporary decoration (Tiptap Decoration is better but complex for one-off)
+        // We use a temporary Mark that we unset after 4s.
+        editor.chain()
+          .setMark('highlight', { color: 'rgba(16, 185, 129, 0.4)' }) // Backup colored mark
+          .run();
+        
+        // Dispatch a custom decoration event or just use a temporary class on the node
+        // Actually, Tiptap's Decoration API is cleaner. But let's use a simple approach:
+        // Add a temporary mark that CSS handles
+        
+        // Using a custom transaction to add the mark
+        const tr = editor.state.tr.addMark(from, to, editor.schema.marks.highlight.create());
+        editor.view.dispatch(tr);
+
+        setTimeout(() => {
+          if (editor.isDestroyed) return;
+          const cleanTr = editor.state.tr.removeMark(from, to, editor.schema.marks.highlight);
+          editor.view.dispatch(cleanTr);
+        }, 4000);
+      }
+    };
+
+    window.addEventListener('nolan-highlight-neural', handleNeuralHighlight);
 
     return () => {
       window.removeEventListener('nolan-apply-suggestion', handleApply);
       window.removeEventListener('nolan-reject-suggestion', handleReject);
+      window.removeEventListener('nolan-highlight-neural', handleNeuralHighlight);
     };
   }, []);
 

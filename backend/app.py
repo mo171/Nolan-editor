@@ -27,7 +27,7 @@ from lib.redis_client import cache
 from lib.supabase import supabase
 
 # Routers
-from routers import projects, chapters, scenes, characters, comics, ws, lint, animate
+from routers import projects, chapters, scenes, characters, comics, ws, lint, animate, analytics
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 
@@ -166,6 +166,7 @@ app.include_router(comics.router)
 app.include_router(ws.router)
 app.include_router(lint.router)
 app.include_router(animate.router)
+app.include_router(analytics.router)
 
 
 # ─── Health check ─────────────────────────────────────────────────────────────

@@ -21,9 +21,12 @@ import {
   ShieldAlert,
   Film,
   PlayCircle,
-  Loader2
+  Loader2,
+  Zap
 } from "lucide-react";
 import { useEditorContext } from "@/features/editor/context/editor-context";
+import { NeuralPulseChart } from "./neural-pulse-chart";
+import { PacingHeatmap } from "./pacing-heatmap";
 
 const STUDIO_GRID = [
   {
@@ -127,8 +130,16 @@ export function EditorStudioPanel() {
     setActiveSuggestion,
     generateAnimatic,
     isAnimaticGenerating,
-    chapters
+    chapters,
+    activeScene,
+    neuralStats,
+    isNeuralSyncing,
+    syncNeuralStats,
+    setActiveView
   } = useEditorContext();
+
+  const [activeTab, setActiveTab] = useState("grid"); // 'grid' | 'analytics' is partially handled by activeView now
+  const [activeKpi, setActiveKpi] = useState("arousal");
 
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
   const [characterVoices, setCharacterVoices] = useState({});
@@ -227,7 +238,101 @@ export function EditorStudioPanel() {
 
           {/* Studio Content */}
           <div className="flex-1 overflow-y-auto px-3 pb-3 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
-            {activeSuggestion ? (
+            {activeTab === "analytics" ? (
+              <div className="flex flex-col h-full animate-in slide-in-from-right-4 fade-in duration-300">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-4">
+                   <button 
+                    onClick={() => setActiveTab("grid")}
+                    className="p-1 rounded-md text-white/30 hover:bg-white/5 hover:text-white transition-all"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <div className="text-[10px] font-bold text-white/50 uppercase tracking-widest flex items-center gap-2">
+                    <BarChart3 size={12} className="text-amber-400" />
+                    Neural Engine
+                  </div>
+                  <div className="w-6" /> 
+                </div>
+
+                {/* KPI Selectors */}
+                <div className="grid grid-cols-3 gap-1 mb-4">
+                  {["arousal", "visual", "semantic"].map((kpi) => (
+                    <button
+                      key={kpi}
+                      onClick={() => setActiveKpi(kpi)}
+                      className={`py-1.5 rounded-lg text-[9px] font-bold uppercase transition-all border ${
+                        activeKpi === kpi 
+                          ? "bg-white/10 border-white/20 text-white" 
+                          : "bg-transparent border-transparent text-white/30 hover:text-white/50"
+                      }`}
+                    >
+                      {kpi}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Main Graph */}
+                <div className="mb-4 bg-[#131316] border border-white/5 rounded-2xl p-2 relative overflow-hidden group">
+                  <div className="absolute top-2 right-3 text-[8px] font-black text-white/10 uppercase tracking-tighter italic">Live Pulse</div>
+                  <NeuralPulseChart data={neuralStats?.[`${activeKpi}_data`]} activeKpi={activeKpi} />
+                </div>
+
+                {/* Heatmap */}
+                <div className="mb-6">
+                  <PacingHeatmap 
+                    arousal={neuralStats?.arousal_data} 
+                    visual={neuralStats?.visual_data} 
+                  />
+                </div>
+
+                {/* Hook Score */}
+                {neuralStats?.hook_score && (
+                  <div className="mb-6 p-4 rounded-xl bg-gradient-to-br from-amber-400/10 to-transparent border border-amber-400/20">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest flex items-center gap-2">
+                        <Zap size={10} />
+                        Hook Score
+                      </span>
+                      <span className="text-lg font-black text-white tracking-tighter">
+                        {Math.round(neuralStats.hook_score * 100)}%
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-white/40 leading-relaxed">
+                      {neuralStats.hook_score > 0.6 
+                        ? "Opening triggers significant reward novelty. High engagement."
+                        : "Weak reward signature. Consider a stronger pattern interrupt."}
+                    </div>
+                  </div>
+                )}
+
+                {/* Manual Sync Button */}
+                <button
+                  onClick={syncNeuralStats}
+                  disabled={isNeuralSyncing}
+                  className={`mt-auto w-full py-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold transition-all shadow-xl ${
+                    isNeuralSyncing 
+                      ? "bg-white/5 text-white/20 cursor-not-allowed" 
+                      : "bg-amber-400/10 hover:bg-amber-400/20 border border-amber-400/30 text-amber-400 shadow-amber-400/5 hover:shadow-amber-400/20"
+                  }`}
+                >
+                  {isNeuralSyncing ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      Neuralizing...
+                    </>
+                  ) : (
+                    <>
+                      <Radio size={14} className="animate-pulse" />
+                      Sync Neural Stats
+                    </>
+                  )}
+                </button>
+                <div className="mt-2 text-[8px] text-white/20 text-center uppercase tracking-widest leading-relaxed">
+                  Predicts average human fMRI response<br/>using Tribe v2 Engine
+                </div>
+              </div>
+            ) : activeSuggestion ? (
               <div className="flex flex-col h-full animate-in slide-in-from-right-4 fade-in duration-300">
                 
                 {/* Active Suggestion Header */}
@@ -336,7 +441,10 @@ export function EditorStudioPanel() {
                   {STUDIO_GRID.map((item) => (
                     <motion.button
                       key={item.id}
-                      onClick={() => item.id === "animate" ? openVoiceModal() : null}
+                      onClick={() => {
+                        if (item.id === "animate") openVoiceModal();
+                        if (item.id === "analytics") setActiveView("analytics");
+                      }}
                       whileHover={{ scale: 1.03, y: -2 }}
                       whileTap={{ scale: 0.97 }}
                       className={`relative group flex flex-col items-center justify-center gap-2 p-3 rounded-xl bg-gradient-to-b ${item.color} border border-white/5 hover:border-white/10 transition-all duration-200 overflow-hidden`}

@@ -11,6 +11,7 @@ import { EditorStudioPanel } from "@/features/editor/components/editor-studio-pa
 import { EditorAiBar } from "@/features/editor/components/editor-ai-bar";
 import { BeatSheet } from "@/features/editor/components/beat-sheet";
 import KnowledgeGraphCanvas from "@/features/editor/components/knowledge-graph-canvas";
+import { NeuralDashboard } from "@/features/editor/components/neural-dashboard";
 import { useParams } from "next/navigation";
 import { AnimaticPlayer } from "@/features/animatic/components/animatic-player";
 import { Loader2 } from "lucide-react";
@@ -74,6 +75,16 @@ function EditorLayout() {
               className="absolute inset-0 z-10"
             >
               <KnowledgeGraphCanvas projectId={projectId} />
+            </motion.div>
+          ) : activeView === 'analytics' ? (
+            <motion.div
+              key="analytics-view"
+              initial={{ opacity: 0, scale: 1.1, filter: 'blur(20px)' }}
+              animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, scale: 0.9, filter: 'blur(20px)' }}
+              className="absolute inset-0 z-40 bg-[#0e0e11]/60 backdrop-blur-2xl"
+            >
+              <NeuralDashboard />
             </motion.div>
           ) : null}
         </AnimatePresence>

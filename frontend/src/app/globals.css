@@ -386,8 +386,66 @@
 
 /* ─── Custom Scrollbar ─────────────────────────────────────────────────────── */
 .scrollbar-thin::-webkit-scrollbar {
-  width: 4px;
+  z-index: 10;
 }
+
+/* 🎯 Neural Narrative Highlights */
+.nolan-hook-glow {
+  position: relative;
+  transition: all 1s ease-in-out;
+}
+
+/* Approval: Removed automatic glow based on user request. 
+   Keeping class for programmatic use if needed later. */
+
+.nolan-lull-mark {
+  background: linear-gradient(to top, rgba(105,218,255,0.1) 20%, transparent 40%);
+  border-bottom: 1.5px dashed rgba(105,218,255,0.4);
+  cursor: help;
+}
+
+/* Targeted Neural Highlight (Emerald) */
+.nolan-neural-target {
+  background: rgba(16, 185, 129, 0.15);
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+  border-bottom: 2px solid rgba(16, 185, 129, 0.6);
+  border-radius: 2px;
+  animation: neural-target-pulse 4s ease-out forwards;
+}
+
+@keyframes neural-target-pulse {
+  0% { transform: scale(1); background: rgba(16, 185, 129, 0.3); }
+  10% { transform: scale(1.02); background: rgba(16, 185, 129, 0.4); }
+  20% { transform: scale(1); background: rgba(16, 185, 129, 0.3); }
+  100% { transform: scale(1); background: transparent; border-bottom-color: transparent !important; border-bottom-width: 0px; }
+}
+
+.nolan-hook-glow::before {
+  content: "";
+  position: absolute;
+  inset: -10px -20px;
+  background: radial-gradient(circle at 10% 50%, rgba(186,158,255,0.08) 0%, transparent 70%);
+  border-left: 2px solid rgba(186,158,255,0.3);
+  border-radius: 4px;
+  pointer-events: none;
+  animation: hook-pulse 4s infinite alternate;
+}
+
+@keyframes hook-pulse {
+  from { opacity: 0.4; }
+  to { opacity: 1; }
+}
+
+.nolan-lull-mark {
+  background: linear-gradient(to top, rgba(105,218,255,0.1) 20%, transparent 40%);
+  border-bottom: 1.5px dashed rgba(105,218,255,0.4);
+  cursor: help;
+}
+
+[data-mode="Thinking"] .nolan-prose p {
+  transition: opacity 0.5s ease;
+}
+
 .scrollbar-thin::-webkit-scrollbar-track {
   background: transparent;
 }
