@@ -158,6 +158,7 @@ export default function ComicWorkflow({ projectId, projectData, currentStep, set
                <EditablePanel 
                  panelData={panel} 
                  index={idx}
+                 projectId={projectId}
                  onUpdate={(updatedData) => {
                    const newPanels = [...comicData.panels];
                    newPanels[idx] = updatedData;

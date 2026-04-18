@@ -1,272 +1,334 @@
+"""
+Animatic Pipeline
+==================
+Builds an audio-video storybook experience per chapter:
+
+  For each scene:
+  1. Reuse the existing comic book panel image (no new image generation)
+  2. Run a "Script Extractor" LLM to pick only the key narration lines + dialogue
+     (never floods the viewer with all text — cinematic highlight only)
+  3. Generate TTS audio per segment, with per-scene caching
+     (if audio already exists on disk, reuse it — never regenerate)
+  4. Return structured data for the AnimaticPlayer frontend (Ken Burns + subtitles)
+"""
+
 import os
 import uuid
+import hashlib
 import logging
 import asyncio
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 from pathlib import Path
 
 from lib.supabase import supabase
 from services.audio.tts_service import TTSService, VOICE_REGISTRY
 from services.audio.music_service import MusicService
 from openai import AsyncOpenAI
-import httpx
 
 logger = logging.getLogger("nolan.animate.pipeline")
 
-# Local storage paths
-BASE_DIR = Path(__file__).parent.parent.parent.parent
+# ─── Paths ────────────────────────────────────────────────────────────────────
+BASE_DIR          = Path(__file__).parent.parent.parent.parent
 ANIMATIC_DATA_DIR = BASE_DIR / "frontend" / "public" / "animatics"
-AUDIO_DIR = BASE_DIR / "frontend" / "public" / "audio" / "animatic"
-COMIC_DIR = BASE_DIR / "frontend" / "public" / "comics"
+AUDIO_DIR         = BASE_DIR / "frontend" / "public" / "audio" / "animatic"
+COMIC_DIR         = BASE_DIR / "frontend" / "public" / "comics"
 
-def ensure_dirs():
+def _ensure_dirs():
     ANIMATIC_DATA_DIR.mkdir(parents=True, exist_ok=True)
     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     COMIC_DIR.mkdir(parents=True, exist_ok=True)
 
-# Initialize async OpenAI client for LLM direction
-client = AsyncOpenAI(
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-    base_url="https://openrouter.ai/api/v1"
-)
+# ─── OpenRouter client (for script extraction LLM) ────────────────────────────
+_llm_client: AsyncOpenAI | None = None
+
+def _get_llm_client() -> AsyncOpenAI:
+    global _llm_client
+    if _llm_client is None:
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("[AnimatePipeline] OPENROUTER_API_KEY not set")
+        _llm_client = AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+            default_headers={
+                "HTTP-Referer": "https://nolan-editor.com",
+                "X-Title":      "Nolan AI Studio",
+            },
+        )
+    return _llm_client
+
+# ─── Script Extractor ─────────────────────────────────────────────────────────
+
+_SCRIPT_PROMPT = """\
+You are a cinematic script editor for an audiobook-style story presentation.
+
+Your job: read a scene and extract the 2-4 most emotionally impactful lines to READ ALOUD.
+These will be displayed as subtitles while the scene image is shown.
+
+RULES:
+1. Pick ONLY the key lines — the ones that carry the most narrative weight, tension, or emotion.
+2. Never pick every sentence. Be selective. Less is more.
+3. Classify each line as either "narration" (story prose) or "dialogue" (character speech).
+4. For dialogue, include the speaker's name.
+5. Each line should be SHORT — max 25 words for narration, max 15 words for dialogue.
+   Trim/rephrase if needed to fit.
+6. Return ONLY valid JSON — no markdown, no explanation.
+
+Return this exact structure:
+{
+  "segments": [
+    {"type": "narration", "speaker": null, "text": "..."},
+    {"type": "dialogue",  "speaker": "Character Name", "text": "..."}
+  ]
+}
+"""
+
+async def extract_scene_script(scene_text: str) -> List[Dict]:
+    """
+    Uses LLM to pick only the key narration + dialogue lines from a scene.
+    Returns a list of segment dicts: [{type, speaker, text}, ...]
+    Falls back to a simple excerpt if LLM fails.
+    """
+    if not scene_text or not scene_text.strip():
+        return []
+
+    try:
+        llm = _get_llm_client()
+        resp = await llm.chat.completions.create(
+            model=os.getenv("LLM_MODEL", "openai/gpt-4o-mini"),
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": _SCRIPT_PROMPT},
+                {"role": "user",   "content": f"SCENE:\n{scene_text[:3000]}"},
+            ],
+            temperature=0.4,
+            max_tokens=600,
+        )
+        data = json.loads(resp.choices[0].message.content)
+        segments = data.get("segments", [])
+        if isinstance(segments, list) and segments:
+            return segments
+    except Exception as e:
+        logger.warning(f"[AnimatePipeline] Script extraction failed: {e}")
+
+    # Fallback: just take the first 2 sentences as narration
+    sentences = [s.strip() for s in scene_text.replace("\n", " ").split(".") if s.strip()]
+    fallback = sentences[:2]
+    return [
+        {"type": "narration", "speaker": None, "text": s[:120]}
+        for s in fallback if s
+    ]
+
 
 class AnimatePipeline:
     def __init__(self):
-        self.tts = TTSService()
+        self.tts   = TTSService()
         self.music = MusicService()
-        ensure_dirs()
+        _ensure_dirs()
 
     async def auto_cast_voices(self, project_id: str) -> Dict[str, str]:
-        """
-        Analyzes characters in the project and assigns the best AI voice for each.
-        """
+        """Assigns the best AI voice to each character using LLM casting."""
         try:
-            # Fetch characters from Supabase
-            res = supabase.table("project_characters").select("*").eq("project_id", project_id).execute()
+            res = supabase.table("project_characters").select(
+                "name, description, traits"
+            ).eq("project_id", project_id).execute()
             characters = res.data or []
-            
+
             if not characters:
                 return {"Narrator": "en-US-JennyNeural"}
 
-            # Prepare character descriptions for LLM
-            char_summaries = [f"{c['name']}: {c.get('description', 'Neutral')}, traits: {c.get('traits', 'None')}" for c in characters]
-            available_voices_desc = json.dumps(VOICE_REGISTRY, indent=2)
+            char_summaries = [
+                f"{c['name']}: {c.get('description', 'neutral')}, traits: {c.get('traits', [])}"
+                for c in characters
+            ]
 
-            system_prompt = f"""
-            You are a casting director for a cinematic animatic.
-            Based on the character descriptions, assign the best 'edge-tts' voice ID for each character.
-            
-            Available Voices:
-            {available_voices_desc}
-            
-            Return ONLY a JSON object mapping character name to Voice ID.
-            Example: {{"John": "en-US-GuyNeural", "Mary": "en-US-JennyNeural"}}
-            """
-            
-            model = os.getenv("LLM_MODEL", "openai/gpt-4o-mini")
-            response = await client.chat.completions.create(
-                model=model,
-                response_format={ "type": "json_object" },
+            llm = _get_llm_client()
+            resp = await llm.chat.completions.create(
+                model=os.getenv("LLM_MODEL", "openai/gpt-4o-mini"),
+                response_format={"type": "json_object"},
                 messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Project Characters: {json.dumps(char_summaries)}"}
-                ]
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a voice casting director. "
+                            "Assign the best edge-tts voice ID to each character. "
+                            f"Available voices: {json.dumps(VOICE_REGISTRY)}. "
+                            "Return ONLY a JSON object: {\"CharacterName\": \"voice-id\"}."
+                        ),
+                    },
+                    {"role": "user", "content": f"Characters: {json.dumps(char_summaries)}"},
+                ],
             )
-            
-            cast = json.loads(response.choices[0].message.content)
-            # Add Narrator default if missing
-            if "Narrator" not in cast:
-                cast["Narrator"] = "en-US-JennyNeural"
+            cast = json.loads(resp.choices[0].message.content)
+            cast.setdefault("Narrator", "en-US-JennyNeural")
             return cast
-            
+
         except Exception as e:
-            logger.error(f"[AutoCast] Error: {e}")
+            logger.error(f"[AutoCast] Failed: {e}")
             return {"Narrator": "en-US-JennyNeural", "Default": "en-US-GuyNeural"}
 
-    async def deconstruct_scene_to_shots(self, text: str) -> List[Dict]:
-        """
-        Breaks a single scene into 2-3 cinematic shots for a half-animation feel.
-        """
-        system_prompt = """
-        You are a literal cinematic director. Your task is to faithfully deconstruct the provided scene text into 2-3 distinct "Shots" for an animatic film.
-        
-        CRITICAL FAITHFULNESS RULES:
-        1. DO NOT add characters, items, or plot points not present in the text.
-        2. DO NOT summarize. Map EVERY sentence of activity or dialogue to a specific shot.
-        3. CHRONOLOGICAL ORDER: The shots MUST follow the exact order of events in the text.
-        4. ART FORM: This is for a cinematic graphic novel. 
-        5. DIRECT DIRECTOR VISION: Provide clear visual instructions (lighting, angles, character proximity).
-        
-        For each shot, provide:
-        - visual_description: A detailed cinematic prompt for 16:9 widescreen.
-        - shot_type: Establishing, Close-up, Wide, or Medium.
-        - segments: A list of narration/dialogue lines occurring in this specific shot. Every line of dialogue from the text MUST be accounted for.
-        
-        Return a JSON object with a "shots" key containing the array.
-        """
-        
-        try:
-            model = os.getenv("LLM_MODEL", "openai/gpt-4o-mini")
-            response = await client.chat.completions.create(
-                model=model,
-                response_format={ "type": "json_object" },
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Scene Text: {text}"}
-                ]
-            )
-            # OpenAI response_format with json_object requires 'json' to be in prompt, 
-            # and it returns a single object. We need to wrap it.
-            data = json.loads(response.choices[0].message.content)
-            # If the LLM returned {"shots": [...]}, return the list
-            if "shots" in data: return data["shots"]
-            if isinstance(data, list): return data
-            return [data] # fallback
-        except Exception as e:
-            logger.error(f"[Deconstruct] Error: {e}")
-            return []
+    def _audio_cache_path(self, scene_id: str, segment_index: int) -> Path:
+        """Deterministic audio file path per scene+segment — for caching."""
+        return AUDIO_DIR / f"scene_{scene_id[:8]}_seg{segment_index}.mp3"
 
-    async def generate_cinematic_image(self, prompt: str, seed: Optional[int] = None) -> str:
+    async def _get_or_generate_audio(
+        self,
+        text: str,
+        scene_id: str,
+        segment_index: int,
+        voice: str,
+        rate: str = "-5%",
+    ) -> str | None:
         """
-        Generates a 16:9 cinematic image. Uses a seed to maintain consistency across shots.
+        Returns audio_url for the segment.
+        If the file already exists on disk, skips TTS and reuses it.
         """
-        api_key = os.getenv("STABILITY_API_KEY")
-        if not api_key: return "https://placehold.co/1280x720/1e1e24/ba9eff.png"
+        audio_path = self._audio_cache_path(scene_id, segment_index)
+        audio_url  = f"/audio/animatic/{audio_path.name}"
 
-        try:
-            endpoint = "https://api.stability.ai/v2beta/stable-image/generate/core"
-            
-            # Use the exact same style as the comic generator for visual consistency
-            comic_style = "cinematic graphic novel, sharp expressive ink lines, rich detailed backgrounds, dramatic chiaroscuro lighting, vibrant color grading, 8K high-fidelity comic art"
-            
-            data = {
-                "prompt": f"{prompt}. Style: {comic_style}. 16:9 Cinemascope focus, high-fidelity film frame.",
-                "output_format": "png",
-                "aspect_ratio": "16:9"
-            }
-            
-            if seed is not None:
-                data["seed"] = seed
-            
-            async with httpx.AsyncClient() as http_client:
-                response = await http_client.post(
-                    endpoint,
-                    headers={"Authorization": f"Bearer {api_key}", "Accept": "image/*"},
-                    files={"none": ""},
-                    data=data,
-                    timeout=60.0
-                )
-                
-                if response.status_code == 200:
-                    filename = f"cinematic_{uuid.uuid4().hex[:12]}.png"
-                    filepath = COMIC_DIR / filename
-                    with open(filepath, "wb") as f:
-                        f.write(response.content)
-                    return f"/comics/{filename}"
-                else:
-                    logger.error(f"[Stability] Error {response.status_code}: {response.text}")
-                    return "https://placehold.co/1280x720/1e1e24/ba9eff.png"
-        except Exception as e:
-            logger.error(f"[Stability] Error: {e}")
-            return "https://placehold.co/1280x720/1e1e24/ba9eff.png"
+        if audio_path.exists():
+            logger.info(f"[Animatic] Reusing cached audio: {audio_path.name}")
+            return audio_url
 
-    async def prepare_animatic(self, project_id: str, scene_ids: List[str], character_voices: Dict[str, str] = None) -> Dict:
-        """
-        Major Upgrade: Cinematic 16:9, Multi-Shot, Auto-Casting, and Caching.
-        """
-        # 1. Check Cache First
-        cache_id = f"animatic_{project_id}_{'_'.join(scene_ids[:3])}_{len(scene_ids)}"
-        cache_file = ANIMATIC_DATA_DIR / f"{cache_id}.json"
-        
-        if cache_file.exists():
-            logger.info(f"[Animatic] Returning cached version: {cache_id}")
-            with open(cache_file, "r") as f:
-                return json.load(f)
+        success = await self.tts.generate_audio(
+            text, str(audio_path), voice=voice, pitch="+0Hz", rate=rate
+        )
+        if success:
+            logger.info(f"[Animatic] Generated audio: {audio_path.name}")
+            return audio_url
 
-        logger.info(f"[Animatic] Generating new cinematic experience for project {project_id}")
-        
-        # 2. Auto-Casting
+        logger.warning(f"[Animatic] TTS failed for segment {segment_index} of scene {scene_id}")
+        return None
+
+    async def prepare_animatic(
+        self,
+        project_id: str,
+        scene_ids: List[str],
+        character_voices: Dict[str, str] = None,
+    ) -> Dict:
+        """
+        Builds the animatic result:
+        - Reuses existing comic panel images (one per scene)
+        - Extracts smart script (key narration + dialogue only) via LLM
+        - Generates/reuses TTS audio per segment
+        - Returns structured data for the AnimaticPlayer
+        """
+        _ensure_dirs()
+
+        # 1. Auto-cast voices if not provided
         if not character_voices:
             character_voices = await self.auto_cast_voices(project_id)
-        
-        animatic_panels = []
-        overall_emotions = []
 
-        # 3. Process Scenes into Cinematic Shots
+        # 2. Fetch all existing comic panels in one query
+        comic_panel_map: Dict[str, str] = {}
+        try:
+            panels_res = supabase.table("comic_panels").select(
+                "scene_id, image_url"
+            ).in_("scene_id", scene_ids).execute()
+
+            for panel in (panels_res.data or []):
+                sid = panel.get("scene_id")
+                url = panel.get("image_url")
+                if sid and url and sid not in comic_panel_map:
+                    comic_panel_map[sid] = url
+
+            logger.info(f"[Animatic] {len(comic_panel_map)} comic panels available")
+        except Exception as e:
+            logger.warning(f"[Animatic] Could not fetch comic panels: {e}")
+
+        animatic_panels = []
+
+        # 3. Process each scene
         for scene_id in scene_ids:
-            res = supabase.table("scenes").select("*").eq("id", scene_id).single().execute()
-            scene = res.data
-            if not scene: continue
-            
-            text = scene.get("plain_text") or scene.get("content") or "Empty scene."
-            shots = await self.deconstruct_scene_to_shots(text)
-            
-            import random
-            scene_seed = random.randint(0, 4294967295)
-            
-            for shot_idx, shot in enumerate(shots):
-                logger.info(f"[Animatic] Generating shot {shot_idx+1}/{len(shots)} for scene {scene_id}")
-                
-                # Visual Generation with Scene-Level Consistency
-                image_url = await self.generate_cinematic_image(shot["visual_description"], seed=scene_seed)
-                
-                # Audio Synthesis for Shot Segments
+            try:
+                res = supabase.table("scenes").select(
+                    "plain_text, content, title"
+                ).eq("id", scene_id).single().execute()
+                scene = res.data
+                if not scene:
+                    continue
+
+                text = scene.get("plain_text") or scene.get("content") or ""
+                if not text.strip():
+                    continue
+
+                # ── Image: reuse comic panel ──────────────────────────────
+                image_url = comic_panel_map.get(
+                    scene_id,
+                    "https://placehold.co/1024x1024/1e1e24/ba9eff.png"
+                )
+
+                # ── Script: LLM extracts key lines ────────────────────────
+                script_segments = await extract_scene_script(text)
+
+                # ── Audio: generate or reuse per segment ──────────────────
                 segments = []
-                for seg in shot.get("segments", []):
-                    voice = character_voices.get(seg.get("speaker"), character_voices.get("Narrator", "en-US-JennyNeural"))
-                    
-                    audio_filename = f"cine_{uuid.uuid4().hex[:8]}.mp3"
-                    audio_path = AUDIO_DIR / audio_filename
-                    
-                    # Pitch/Rate variations for personality
-                    pitch = "+0Hz"
-                    rate = "+0%"
-                    if seg.get("type") == "narration": rate = "-5%" # Slower narrators feel more epic
-                    
-                    success = await self.tts.generate_audio(seg["text"], str(audio_path), voice=voice, pitch=pitch, rate=rate)
-                    
-                    if success:
-                        segments.append({
-                            "id": str(uuid.uuid4()),
-                            "type": seg["type"],
-                            "speaker": seg.get("speaker"),
-                            "text": seg["text"],
-                            "audio_url": f"/audio/animatic/{audio_filename}"
-                        })
-                    
-                    await asyncio.sleep(0.3) # Avoid 403 blocks
+                for idx, seg in enumerate(script_segments):
+                    seg_text  = seg.get("text", "").strip()
+                    seg_type  = seg.get("type", "narration")
+                    speaker   = seg.get("speaker") or "Narrator"
+
+                    if not seg_text:
+                        continue
+
+                    # Pick voice: narrator for narration, character voice for dialogue
+                    if seg_type == "dialogue":
+                        voice = character_voices.get(speaker, character_voices.get("Narrator", "en-US-JennyNeural"))
+                        rate  = "+0%"
+                    else:
+                        voice = character_voices.get("Narrator", "en-US-JennyNeural")
+                        rate  = "-5%"   # slightly slower for narration
+
+                    audio_url = await self._get_or_generate_audio(
+                        seg_text, scene_id, idx, voice, rate
+                    )
+
+                    segments.append({
+                        "id":        str(uuid.uuid4()),
+                        "type":      seg_type,
+                        "speaker":   speaker if seg_type == "dialogue" else None,
+                        "text":      seg_text,
+                        "audio_url": audio_url,
+                    })
 
                 animatic_panels.append({
-                    "scene_id": scene_id,
-                    "shot_type": shot["shot_type"],
+                    "scene_id":  scene_id,
+                    "shot_type": "Scene",
                     "image_url": image_url,
-                    "segments": segments
+                    "segments":  segments,
                 })
-                
-                overall_emotions.append(shot.get("shot_type", "Normal"))
 
-        # 4. Final Music Polish
-        dominant_mood = "Dramatic" # Default
-        bg_music_url = self.music.get_track_for_mood(dominant_mood)
+                img_src = "comic" if scene_id in comic_panel_map else "placeholder"
+                logger.info(
+                    f"[Animatic] Scene {scene_id[:8]} | image={img_src} "
+                    f"| {len(segments)} segments"
+                )
+
+            except Exception as e:
+                logger.error(f"[Animatic] Failed scene={scene_id}: {e}")
+                continue
 
         result = {
-            "project_id": project_id,
-            "panels": animatic_panels,
+            "project_id":       project_id,
+            "panels":           animatic_panels,
             "character_voices": character_voices,
-            "background_music": bg_music_url,
+            "background_music": self.music.get_track_for_mood("Dramatic"),
             "metadata": {
-                "cinematic": True,
-                "aspect_ratio": "16:9",
-                "total_shots": len(animatic_panels)
-            }
+                "cinematic":           True,
+                "aspect_ratio":        "1:1",
+                "total_shots":         len(animatic_panels),
+                "reused_comic_images": len(comic_panel_map),
+            },
         }
 
-        # 5. Save to Cache
-        with open(cache_file, "w") as f:
-            json.dump(result, f)
-            
+        logger.info(
+            f"[Animatic] Done | {len(animatic_panels)} panels | "
+            f"{len(comic_panel_map)} comic images reused"
+        )
         return result
+
 
 # Global instance
 pipeline = AnimatePipeline()
+

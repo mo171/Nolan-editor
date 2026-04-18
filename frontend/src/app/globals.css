@@ -420,6 +420,16 @@
   100% { transform: scale(1); background: transparent; border-bottom-color: transparent !important; border-bottom-width: 0px; }
 }
 
+/* Neural highlight — ephemeral Decoration (never persisted to content) */
+.nolan-neural-highlight {
+  background: rgba(16, 185, 129, 0.18);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.15);
+  border-bottom: 1.5px solid rgba(16, 185, 129, 0.5);
+  border-radius: 2px;
+  animation: neural-target-pulse 4s ease-out forwards;
+  pointer-events: none;
+}
+
 .nolan-hook-glow::before {
   content: "";
   position: absolute;

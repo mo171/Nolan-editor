@@ -42,6 +42,16 @@ class SceneTitleUpdate(BaseModel):
     title: str
 
 
+class SceneImageRequest(BaseModel):
+    """
+    Request body for scene-based comic art generation.
+    The scene text is re-read from Supabase (not re-sent) to ensure
+    we use the latest saved version.
+    """
+    project_id: str
+    art_style: Optional[str] = ""      # e.g. "noir", "watercolor manga"
+
+
 # ─── Routes ──────────────────────────────────────────────────────────────────
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -214,4 +224,69 @@ async def delete_scene(scene_id: str):
         logger.info(f"[Scenes] Deleted scene={scene_id}")
     except Exception as e:
         logger.error(f"[Scenes] Delete error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{scene_id}/generate-image")
+async def generate_scene_art(scene_id: str, payload: SceneImageRequest):
+    """
+    Generates a comic art panel representing the current state of a scene.
+    Pulls the latest saved plain_text from Supabase, extracts visual 
+    understanding, and calls GPT Image via the Visual Director pipeline.
+    """
+    try:
+        # 1. Fetch the scene text
+        scene_res = supabase.table("scenes").select("plain_text").eq("id", scene_id).single().execute()
+        if not scene_res.data:
+            raise HTTPException(status_code=404, detail="Scene not found")
+        
+        scene_text = scene_res.data.get("plain_text", "")
+        if not scene_text or len(scene_text.split()) < 10:
+            raise HTTPException(status_code=400, detail="Scene needs more text to visualize")
+
+        # 2. Fetch project characters for visual consistency injection
+        pc_res = supabase.table("project_characters").select(
+            "name, role, description, traits, ai_visual_summary"
+        ).eq("project_id", payload.project_id).execute()
+        characters = pc_res.data or []
+
+        # 3. Import and call Visual Director pipeline
+        from services.images.visual_director import generate_scene_image
+        from pathlib import Path
+        import os
+        
+        logger.info(f"[Scenes] Requesting cinematic image for scene={scene_id}")
+        img_bytes = await generate_scene_image(scene_text, characters, payload.art_style)
+
+        if not img_bytes:
+            raise HTTPException(status_code=500, detail="Failed to generate image bytes")
+
+        # 4. Save locally
+        base_dir = Path(__file__).parent.parent.parent
+        comic_dir = base_dir / "frontend" / "public" / "comics"
+        comic_dir.mkdir(parents=True, exist_ok=True)
+        
+        filename = f"scene_{scene_id[:8]}_{uuid.uuid4().hex[:6]}.png"
+        filepath = comic_dir / filename
+        
+        with open(filepath, "wb") as f:
+            f.write(img_bytes)
+            
+        public_url = f"/comics/{filename}"
+        
+        # 5. Optionally link it to the scene (upsert to comic_panels table 
+        # so it persists in the project data, not just local disk)
+        supabase.table("comic_panels").upsert({
+            "scene_id": scene_id,
+            "project_id": payload.project_id,
+            "image_url": public_url,
+            "image_prompt": f"[GPT Image via Scene Trigger]"
+        }, on_conflict="scene_id").execute()
+
+        return {"url": public_url}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Scenes] Failed to generate scene art: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

@@ -100,27 +100,29 @@ export function AnimaticPlayer({ data, onClose }) {
 
   // Ken Burns Animation Variants
   const kenBurnsBgVariants = {
+    initial: { scale: 1.1, x: 0, y: 0 },
     animate: {
-      scale: [1.1, 1.2, 1.15],
-      x: [0, -10, 5],
-      y: [0, 5, -5],
+      scale: [1.1, 1.25, 1.15],
+      x: [0, -15, 10],
+      y: [0, 8, -5],
       transition: {
-        duration: 20,
+        duration: 25,
         repeat: Infinity,
         repeatType: "reverse",
-        ease: "linear"
+        ease: "easeInOut"
       }
     }
   };
 
   const kenBurnsFgVariants = {
+    initial: { scale: 1 },
     animate: {
-      scale: [1, 1.05, 1.02],
+      scale: [1, 1.08, 1.04],
       transition: {
-        duration: 25,
+        duration: 30,
         repeat: Infinity,
         repeatType: "reverse",
-        ease: "linear"
+        ease: "easeInOut"
       }
     }
   };
@@ -182,38 +184,40 @@ export function AnimaticPlayer({ data, onClose }) {
             >
               {/* Blurred Background Layer (Depth) */}
               <motion.div 
-                className="absolute inset-0 z-0"
+                className="absolute inset-0 z-0 origin-center"
                 variants={kenBurnsBgVariants}
+                initial="initial"
                 animate="animate"
               >
                 <img 
                   src={currentPanel.image_url}
-                  className="w-full h-full object-cover blur-3xl opacity-30 scale-110"
+                  className="w-full h-full object-cover blur-3xl opacity-40 scale-125"
                 />
               </motion.div>
 
               {/* Main Cinematic Shot (Widescreen) */}
               <motion.img 
                 variants={kenBurnsFgVariants}
+                initial="initial"
                 animate="animate"
                 src={currentPanel.image_url}
-                className="relative z-10 w-full h-full object-contain shadow-2xl"
+                className="relative z-10 w-full h-full object-contain shadow-2xl origin-center"
               />
               
               {/* Cinematic Vignette */}
-              <div className="absolute inset-0 z-20 bg-gradient-to-t from-black/80 via-transparent to-black/80 pointer-events-none" />
-              <div className="absolute inset-0 z-20 shadow-[inset_0_0_150px_rgba(0,0,0,0.6)] pointer-events-none" />
+              <div className="absolute inset-0 z-20 bg-gradient-to-t from-black/90 via-transparent to-black/80 pointer-events-none" />
+              <div className="absolute inset-0 z-20 shadow-[inset_0_0_150px_rgba(0,0,0,0.7)] pointer-events-none" />
 
               {/* Captions / Dialogue Layer */}
-              <div className="absolute inset-x-6 bottom-32 z-30 flex flex-col items-center justify-center text-center gap-6">
+              <div className="absolute inset-x-8 bottom-36 z-30 flex flex-col items-center justify-end text-center gap-6 pb-4">
                  {currentSegment?.type === "narration" && (
                    <motion.div 
                      initial={{ y: 20, opacity: 0 }}
                      animate={{ y: 0, opacity: 1 }}
                      key={currentSegment.id}
-                     className="max-w-3xl bg-black/40 backdrop-blur-xl border border-white/10 p-6 rounded-2xl shadow-2xl"
+                     className="max-w-4xl bg-black/50 backdrop-blur-xl border border-white/10 p-5 rounded-2xl shadow-2xl"
                    >
-                     <p className="text-xl md:text-2xl font-serif text-white/90 italic leading-relaxed tracking-wide">
+                     <p className="text-lg md:text-xl font-serif text-white/90 italic leading-relaxed tracking-wide">
                         "{currentSegment.text}"
                      </p>
                    </motion.div>
@@ -221,21 +225,21 @@ export function AnimaticPlayer({ data, onClose }) {
 
                  {currentSegment?.type === "dialogue" && (
                    <motion.div 
-                      initial={{ scale: 0.9, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
+                      initial={{ scale: 0.9, y: 15, opacity: 0 }}
+                      animate={{ scale: 1, y: 0, opacity: 1 }}
                       key={currentSegment.id}
-                      className="bg-white/95 backdrop-blur-md p-6 rounded-3xl relative shadow-2xl border-4 border-black/10"
+                      className="bg-white/95 backdrop-blur-md px-8 py-5 rounded-3xl relative shadow-2xl border-4 border-black/10"
                    >
-                      <div className="text-black/40 font-black text-[10px] uppercase tracking-widest mb-1.5 flex items-center justify-center gap-2">
-                        <div className="w-4 h-[1px] bg-black/20" />
+                      <div className="text-black/50 font-black text-[11px] uppercase tracking-widest mb-2 flex items-center justify-center gap-3">
+                        <div className="w-6 h-[1px] bg-black/20" />
                         {currentSegment.speaker}
-                        <div className="w-4 h-[1px] bg-black/20" />
+                        <div className="w-6 h-[1px] bg-black/20" />
                       </div>
-                      <div className="text-black text-2xl font-bold leading-tight max-w-sm">
+                      <div className="text-black text-2xl md:text-3xl font-bold leading-snug max-w-2xl px-4">
                         {currentSegment.text}
                       </div>
                       {/* Stylized Bubble tail */}
-                      <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white/95 rotate-45 border-r-4 border-b-4 border-black/10" />
+                      <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-white/95 rotate-45 border-r-4 border-b-4 border-black/10" />
                    </motion.div>
                  )}
               </div>

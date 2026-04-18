@@ -83,6 +83,43 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️  spaCy model not loaded: {e} — run: python -m spacy download en_core_web_lg")
 
+    # ── Pre-load all BERT / embedding models ──────────────────────────────────
+    # Without pre-loading, each model is downloaded+loaded on the FIRST request
+    # that needs it, causing a 5-30s latency spike. We load them eagerly at
+    # startup so all requests after boot get fast cached inference.
+
+    logger.info("Pre-loading BERT emotion classifier...")
+    try:
+        from services.bert.emotion_classifier import _get_pipeline as _load_emotion
+        _load_emotion()
+        logger.info("✅ Emotion classifier loaded")
+    except Exception as e:
+        logger.warning(f"⚠️  Emotion classifier failed to pre-load: {e}")
+
+    logger.info("Pre-loading BERT sentiment analyzer...")
+    try:
+        from services.bert.sentiment_analyzer import _get_pipeline as _load_sentiment
+        _load_sentiment()
+        logger.info("✅ Sentiment analyzer loaded")
+    except Exception as e:
+        logger.warning(f"⚠️  Sentiment analyzer failed to pre-load: {e}")
+
+    logger.info("Pre-loading zero-shot arc detector (DistilBART)...")
+    try:
+        from services.bert.arc_detector import PersonaDetector
+        PersonaDetector.get_instance()._ensure_model()
+        logger.info("✅ Arc detector loaded")
+    except Exception as e:
+        logger.warning(f"⚠️  Arc detector failed to pre-load: {e}")
+
+    logger.info("Pre-loading sentence-transformers embedding model...")
+    try:
+        from services.rag.indexer import get_embedding_model
+        get_embedding_model()
+        logger.info("✅ Embedding model loaded")
+    except Exception as e:
+        logger.warning(f"⚠️  Embedding model failed to pre-load: {e}")
+
 
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info("  Server ready")

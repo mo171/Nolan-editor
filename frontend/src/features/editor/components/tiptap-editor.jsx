@@ -11,6 +11,9 @@ import Underline from "@tiptap/extension-underline";
 import Highlight from "@tiptap/extension-highlight";
 import TextAlign from "@tiptap/extension-text-align";
 import Typography from "@tiptap/extension-typography";
+import { Extension } from "@tiptap/core";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   Sparkles, 
@@ -27,6 +30,45 @@ import { GhostText } from "../extensions/ghost-text";
 import { useGhostText } from "@/hooks/useGhostText";
 import { useNarrativeLinter } from "@/hooks/useNarrativeLinter";
 
+// ─── NeuralHighlight — ephemeral Decoration-based highlighter ─────────────────
+// Uses ProseMirror Decorations instead of real marks so transient highlights
+// are NEVER serialised into HTML / persisted to localStorage or the backend.
+const neuralHighlightKey = new PluginKey("neuralHighlight");
+
+const NeuralHighlight = Extension.create({
+  name: "neuralHighlight",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: neuralHighlightKey,
+        state: {
+          init() { return DecorationSet.empty; },
+          apply(tr, set) {
+            // Remove decorations on content change so stale highlights don't linger
+            set = set.map(tr.mapping, tr.doc);
+            const meta = tr.getMeta(neuralHighlightKey);
+            if (meta?.add) {
+              const deco = Decoration.inline(meta.add.from, meta.add.to, {
+                class: "nolan-neural-highlight",
+              });
+              set = set.add(tr.doc, [deco]);
+            }
+            if (meta?.clear) {
+              set = DecorationSet.empty;
+            }
+            return set;
+          },
+        },
+        props: {
+          decorations(state) {
+            return neuralHighlightKey.getState(state);
+          },
+        },
+      }),
+    ];
+  },
+});
+
 export function TiptapEditor({ onEditorReady }) {
   const params = useParams();
   const projectId = params?.projectId;
@@ -34,9 +76,14 @@ export function TiptapEditor({ onEditorReady }) {
   const { activeScene, updateSceneContent, updateSceneMetadata, activeMode, setActiveSuggestion, setStudioPanelOpen, ghostTextEnabled, neuralStats } = useEditorContext();
   const ghostTimerRef = useRef(null);
   const editorRef = useRef(null);
+  // Guard: prevents programmatic setContent() from firing updateSceneContent
+  const isSettingContentRef = useRef(false);
+  // Guard: prevents clearGhost from re-rendering when ghost is already empty
+  const ghostIsEmptyRef = useRef(true);
 
   const onToken = useCallback((text) => {
     if (editorRef.current) {
+      ghostIsEmptyRef.current = false;
       editorRef.current.commands.setGhostText(text);
     }
   }, []);
@@ -56,12 +103,23 @@ export function TiptapEditor({ onEditorReady }) {
 
   const handleUpdate = useCallback(
     ({ editor }) => {
+      // Skip if we're programmatically setting content (scene switch)
+      if (isSettingContentRef.current) return;
+
       if (activeScene?.id) {
         updateSceneContent(activeScene.id, editor.getHTML());
       }
       
-      // Stop any ongoing ghost stream if user types something
-      clearGhost();
+      // Stop any ongoing ghost stream if user types something.
+      // Only call clearGhost when there's actually ghost text to clear
+      // to avoid a React setState on every keystroke.
+      if (!ghostIsEmptyRef.current) {
+        ghostIsEmptyRef.current = true;
+        clearGhost();
+      } else {
+        // Still clear the Tiptap decoration without a React re-render
+        if (editorRef.current) editorRef.current.commands.clearGhostText();
+      }
       
       // Ghostwriter Logic: Start Zen timer on inactivity
       if (ghostTimerRef.current) clearTimeout(ghostTimerRef.current);
@@ -72,10 +130,9 @@ export function TiptapEditor({ onEditorReady }) {
           const words = text.split(/\s+/);
           const cursorText = words.slice(-30).join(" ");
           
+          ghostIsEmptyRef.current = false;
           requestGhost(cursorText, activeScene?.id);
         }, 3500); // 3.5s inactivity
-      } else {
-        editor.commands.clearGhostText();
       }
     },
     [activeScene?.id, updateSceneContent, activeMode, requestGhost, clearGhost, ghostTextEnabled]
@@ -122,6 +179,7 @@ export function TiptapEditor({ onEditorReady }) {
       Typography,
       NolanLinter,
       GhostText,
+      NeuralHighlight,
     ],
     content: activeScene?.content || "",
     immediatelyRender: false,
@@ -153,10 +211,18 @@ export function TiptapEditor({ onEditorReady }) {
     if (editor && activeScene?.content !== undefined) {
       const current = editor.getHTML();
       if (current !== activeScene.content) {
-        // When scene switches, clear ghost and populate text
+        // Set the guard BEFORE setContent so the onUpdate callback skips
+        // updateSceneContent during the programmatic content swap.
+        isSettingContentRef.current = true;
         clearGhost();
+        ghostIsEmptyRef.current = true;
         editor.commands.clearGhostText();
+        // emitUpdate: false prevents onUpdate from firing entirely
         editor.commands.setContent(activeScene.content, false);
+        // Release the guard after the current call stack unwinds
+        requestAnimationFrame(() => {
+          isSettingContentRef.current = false;
+        });
       }
     }
   }, [activeScene?.id]);
@@ -205,6 +271,8 @@ export function TiptapEditor({ onEditorReady }) {
     window.addEventListener('nolan-reject-suggestion', handleReject);
 
     // Neural Highlight Listener
+    // Uses ephemeral Decorations (via NeuralHighlight extension) so the transient
+    // highlight is NEVER serialised into HTML content or saved to localStorage.
     const handleNeuralHighlight = (e) => {
       if (!editorRef.current) return;
       const editor = editorRef.current;
@@ -214,46 +282,31 @@ export function TiptapEditor({ onEditorReady }) {
       let to = -1;
 
       if (type === 'hook') {
-        // Find the first paragraph
         const firstPara = editor.state.doc.firstChild;
         if (firstPara && firstPara.isTextblock) {
-          from = 1; // start of first para
+          from = 1;
           to = 1 + firstPara.nodeSize;
         }
       } else if (type === 'pacing' || (type === 'lull' && time)) {
-          // Estimated mapping: Time -> Word -> Char
-          // Assuming approx 150 words per minute = 2.5 words per second
-          // Let's use a rough estimate of 15 chars per second for screenwriting prose
-          const charOffset = Math.floor(time * 15);
-          const docSize = editor.state.doc.content.size;
-          from = Math.max(1, Math.min(charOffset, docSize - 10));
-          to = Math.min(from + 50, docSize); // highlight a chunk
+        const charOffset = Math.floor(time * 15);
+        const docSize = editor.state.doc.content.size;
+        from = Math.max(1, Math.min(charOffset, docSize - 10));
+        to = Math.min(from + 50, docSize);
       }
 
       if (from !== -1) {
-        // Scroll into view
         editor.commands.focus();
-        const resolvedPos = editor.state.doc.resolve(from);
         editor.view.dispatch(editor.state.tr.scrollIntoView());
 
-        // Apply a temporary decoration (Tiptap Decoration is better but complex for one-off)
-        // We use a temporary Mark that we unset after 4s.
-        editor.chain()
-          .setMark('highlight', { color: 'rgba(16, 185, 129, 0.4)' }) // Backup colored mark
-          .run();
-        
-        // Dispatch a custom decoration event or just use a temporary class on the node
-        // Actually, Tiptap's Decoration API is cleaner. But let's use a simple approach:
-        // Add a temporary mark that CSS handles
-        
-        // Using a custom transaction to add the mark
-        const tr = editor.state.tr.addMark(from, to, editor.schema.marks.highlight.create());
-        editor.view.dispatch(tr);
+        // Apply ephemeral Decoration — this does NOT fire onUpdate and is never saved.
+        const addTr = editor.state.tr.setMeta(neuralHighlightKey, { add: { from, to } });
+        editor.view.dispatch(addTr);
 
+        // Auto-clear after 4 seconds
         setTimeout(() => {
           if (editor.isDestroyed) return;
-          const cleanTr = editor.state.tr.removeMark(from, to, editor.schema.marks.highlight);
-          editor.view.dispatch(cleanTr);
+          const clearTr = editor.state.tr.setMeta(neuralHighlightKey, { clear: true });
+          editor.view.dispatch(clearTr);
         }, 4000);
       }
     };

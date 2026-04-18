@@ -75,6 +75,8 @@ export function EditorProvider({ children }) {
   const [isNeuralSyncing, setIsNeuralSyncing] = useState(false);
   
   const initializedRef = useRef(false);
+  // Debounce ref for localStorage writes — prevents JSON.stringify on every keystroke
+  const localSaveTimerRef = useRef(null);
 
   // ─── Derived values ───────────────────────────────────────────────────────
   const activeChapter = state.chapters.find((c) => c.id === state.activeChapterId) ?? state.chapters[0];
@@ -114,12 +116,15 @@ export function EditorProvider({ children }) {
     setIsReady(true);
   }, [projectData, isLoading]); // Safe to keep deps now because initializedRef guards it
 
-  // Persist to localStorage write-through cache
+  // Persist to localStorage write-through cache (debounced to avoid per-keystroke serialization)
   const triggerLocalSave = useCallback((nextState) => {
-    try {
-      const storageKey = `${STORAGE_KEY}_${projectId || "default"}`;
-      localStorage.setItem(storageKey, JSON.stringify(nextState));
-    } catch (_) {}
+    if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current);
+    localSaveTimerRef.current = setTimeout(() => {
+      try {
+        const storageKey = `${STORAGE_KEY}_${projectId || "default"}`;
+        localStorage.setItem(storageKey, JSON.stringify(nextState));
+      } catch (_) {}
+    }, 300); // 300ms debounce — JSON.stringify only on brief pause, not every keystroke
   }, [projectId]);
 
   const updateState = useCallback(

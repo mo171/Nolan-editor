@@ -10,6 +10,10 @@ class ComicGenerateRequest(BaseModel):
     chapter_id: str
     template_id: str
 
+class RegeneratePanelRequest(BaseModel):
+    custom_prompt: Optional[str] = None          # Free-form user override description
+    panel_context: Optional[dict] = None          # Original structured scene data (fallback)
+
 @router.get("/templates")
 async def get_templates(project_id: str):
     """Return available comic templates"""
@@ -83,3 +87,107 @@ async def update_panel(project_id: str, panel_id: str, payload: dict):
         "message": "Panel updated",
         "panel": payload
     }
+
+
+from services.comic.pipeline import generate_image, process_scene
+from lib.supabase import supabase
+import os, uuid as _uuid
+from pathlib import Path
+
+@router.post("/panels/{panel_id}/regenerate")
+async def regenerate_panel_image(project_id: str, panel_id: str, request: RegeneratePanelRequest):
+    """
+    Re-generates the image for a single panel.
+
+    If `custom_prompt` is provided by the user it is used directly (bypassing
+    the LLM scene-structurer) to give the user full creative control.
+    Otherwise the stored panel context is re-run through the normal pipeline.
+    """
+    import logging
+    logger = logging.getLogger("nolan.comic.router")
+
+    try:
+        # ── 1. Fetch project characters for visual consistency ─────────────────
+        project_characters = []
+        try:
+            pc_res = supabase.table("project_characters").select(
+                "name, role, description, traits, ai_visual_summary"
+            ).eq("project_id", project_id).execute()
+            project_characters = pc_res.data or []
+        except Exception as e:
+            logger.warning(f"[Regen] Could not fetch characters: {e}")
+
+        new_image_url: str
+
+        if request.custom_prompt and request.custom_prompt.strip():
+            # ── 2a. Custom-prompt path ─────────────────────────────────────────
+            # Directly drive the Visual Director with the user's own words.
+            from services.images.visual_director import (
+                build_visual_profile,
+                build_cinematic_prompt,
+                generate_gpt_image,
+            )
+
+            profiles = {}
+            for pc in project_characters:
+                if pc.get("name"):
+                    profiles[pc["name"]] = build_visual_profile(pc)
+
+            # Wrap the user's description in a minimal scene_understanding so
+            # the Visual Director can enrich it with its standard pipeline.
+            scene_understanding = {
+                "characters":   [],
+                "environment":  request.custom_prompt,
+                "mood":         "dramatic",
+                "lighting":     "cinematic",
+                "camera_angle": "",
+                "time_of_day":  "",
+                "key_action":   request.custom_prompt,
+                "color_palette": "",
+                "style_notes":  "",
+            }
+
+            art_style = "cinematic graphic novel, bold expressive ink lines, dramatic chiaroscuro lighting, rich color grading, 8K comic art"
+            prompt = await build_cinematic_prompt(scene_understanding, profiles, art_style)
+            if not prompt:
+                prompt = (
+                    f"{request.custom_prompt}. "
+                    "Cinematic graphic novel style, bold ink lines, rich colors, moody lighting. "
+                    "No text, no speech bubbles, no captions, no watermarks."
+                )
+
+            logger.info(f"[Regen] Custom-prompt path | prompt[:120]: {prompt[:120]}...")
+            img_bytes = await generate_gpt_image(prompt)
+
+            # Save locally
+            COMIC_DIR = Path(__file__).parent.parent.parent / "frontend" / "public" / "comics"
+            COMIC_DIR.mkdir(parents=True, exist_ok=True)
+            filename = f"panel_{_uuid.uuid4().hex[:12]}.png"
+            with open(COMIC_DIR / filename, "wb") as f:
+                f.write(img_bytes)
+            new_image_url = f"/comics/{filename}"
+
+        else:
+            # ── 2b. Re-run the normal pipeline from scene context ──────────────
+            context = request.panel_context or {}
+            scene_text = context.get("scene_text") or context.get("key_action") or "A dramatic comic panel."
+            structured  = await process_scene(scene_text)
+            new_image_url = await generate_image(structured, project_characters)
+
+        # ── 3. Update the panel record in Supabase (best-effort) ──────────────
+        try:
+            supabase.table("comic_panels").update(
+                {"image_url": new_image_url}
+            ).eq("id", panel_id).execute()
+        except Exception as e:
+            logger.warning(f"[Regen] DB update skipped (panel may be local-only): {e}")
+
+        return {
+            "status":    "success",
+            "image_url": new_image_url,
+            "panel_id":  panel_id,
+        }
+
+    except Exception as e:
+        logger.error(f"[Regen] Failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

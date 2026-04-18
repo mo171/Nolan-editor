@@ -1,32 +1,58 @@
+"""
+Character Portrait Generator
+==============================
+Generates cinematic comic art character portraits using GPT Image.
+Replaces the former Stability AI implementation.
+
+Flow:
+  1. Fetch character data from Supabase (caller provides it)
+  2. Build scene text: a "portrait scene" of just this character
+  3. Generate visual summary (via OpenRouter LLM) for the sidebar card
+  4. Generate portrait image via Visual Director → GPT Image
+  5. Save locally → update Supabase (both project_characters + characters)
+"""
+
 import os
-import requests
+import asyncio
 import logging
-from openai import OpenAI, AsyncOpenAI
 from pathlib import Path
+
 from lib.supabase import supabase
 from dotenv import load_dotenv
+from openai import AsyncOpenAI
 
 load_dotenv()
 
-import httpx
+logger = logging.getLogger("nolan.images.portrait")
 
-logger = logging.getLogger("nolan.images.dalle")
+# ─── OpenRouter client (for visual summary text generation) ──────────────────
+_summary_client: AsyncOpenAI | None = None
 
-# Initialize clients for OpenRouter
-openrouter_key = os.getenv("OPENROUTER_API_KEY")
-async_client = AsyncOpenAI(
-    api_key=openrouter_key,
-    base_url="https://openrouter.ai/api/v1"
-)
+def _get_summary_client() -> AsyncOpenAI:
+    global _summary_client
+    if _summary_client is None:
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("[Portrait] OPENROUTER_API_KEY is not set.")
+        _summary_client = AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+            default_headers={
+                "HTTP-Referer": "https://nolan-editor.com",
+                "X-Title": "Nolan AI Studio",
+            },
+        )
+    return _summary_client
 
-# Local storage path for avatars
-# Relative to Nolan-editor/backend, we want Nolan-editor/frontend/public/avatars
-BASE_DIR = Path(__file__).parent.parent.parent.parent
+# ─── Local file storage ───────────────────────────────────────────────────────
+BASE_DIR   = Path(__file__).parent.parent.parent.parent
 AVATAR_DIR = BASE_DIR / "frontend" / "public" / "avatars"
 
-def ensure_avatar_dir():
+def _ensure_avatar_dir():
     AVATAR_DIR.mkdir(parents=True, exist_ok=True)
 
+
+# ─── Visual summary (sidebar text card) ──────────────────────────────────────
 
 async def _generate_visual_summary(
     char_name: str,
@@ -37,25 +63,24 @@ async def _generate_visual_summary(
     traits: list,
 ) -> str:
     """
-    Uses GPT-4o-mini to produce a tight 1-2 sentence AI visual summary
-    shown in the sidebar CharacterCard after avatar generation.
+    Produces a tight 1-2 sentence casting-note style visual description
+    shown in the sidebar CharacterCard after portrait generation.
     """
     try:
-        prompt_parts = [f"Character name: {char_name}"]
+        parts = [f"Character name: {char_name}"]
         if description:
-            prompt_parts.append(f"Story role: {description}")
+            parts.append(f"Story role: {description}")
         if visual_description:
-            prompt_parts.append(f"Appearance notes: {visual_description}")
+            parts.append(f"Appearance notes: {visual_description}")
         if age:
-            prompt_parts.append(f"Age: {age}")
+            parts.append(f"Age: {age}")
         if clothing:
-            prompt_parts.append(f"Clothing: {clothing}")
+            parts.append(f"Clothing: {clothing}")
         if traits:
-            prompt_parts.append(f"Traits: {', '.join(traits)}")
+            parts.append(f"Traits: {', '.join(traits)}")
 
-        user_msg = "\n".join(prompt_parts)
         model = os.getenv("LLM_MODEL", "openai/gpt-4o-mini")
-        resp = await async_client.chat.completions.create(
+        resp = await _get_summary_client().chat.completions.create(
             model=model,
             messages=[
                 {
@@ -67,20 +92,18 @@ async def _generate_visual_summary(
                         "clothing, and immediate impression. No fluff."
                     ),
                 },
-                {"role": "user", "content": user_msg},
+                {"role": "user", "content": "\n".join(parts)},
             ],
             temperature=0.6,
             max_tokens=80,
-            extra_headers={
-                "HTTP-Referer": "https://nolan-editor.com",
-                "X-Title": "Nolan AI Studio",
-            }
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
-        logger.warning(f"[DALL-E] Visual summary generation failed: {e}")
+        logger.warning(f"[Portrait] Visual summary generation failed: {e}")
         return ""
 
+
+# ─── Main portrait generator ──────────────────────────────────────────────────
 
 async def generate_character_image(
     project_id: str,
@@ -91,94 +114,112 @@ async def generate_character_image(
     age: str = "",
     clothing: str = "",
     art_style: str = "",
-):
+) -> tuple[str | None, str | None]:
     """
-    Generates a high-fidelity cinematic portrait using DALL-E 3 (hd quality).
-    Merges story-bible description, NLP traits, and user-supplied visual details
-    into one rich prompt for the most accurate character avatar possible.
-    Saves locally, updates Supabase, and returns the public URL.
+    Generates a cinematic comic art character portrait via GPT Image.
+
+    Uses the Visual Director's two-layer pipeline:
+      - The "scene" is a character-study close-up framing
+      - Character's visual profile is built from all provided metadata
+      - GPT Image (gpt-image-1-mini, low quality) generates the image
+
+    Returns (public_url, ai_visual_summary) or (None, None) on failure.
     """
+    from services.images.visual_director import (
+        build_visual_profile,
+        build_cinematic_prompt,
+        generate_gpt_image,
+        extract_scene_understanding,
+    )
+
     try:
-        if not os.getenv("OPENROUTER_API_KEY") or not os.getenv("STABILITY_API_KEY"):
-            logger.error("[Portrait Generator] Missing OPENROUTER_API_KEY or STABILITY_API_KEY in .env")
+        if not os.getenv("OPENAI_API_KEY"):
+            logger.error("[Portrait] Missing OPENAI_API_KEY in .env")
             return None, None
 
-        ensure_avatar_dir()
+        _ensure_avatar_dir()
 
-        # ── 1. Build the richest possible prompt ─────────────────────────────
-        trait_str = ", ".join(traits) if traits else "enigmatic"
-        style = art_style or "cinematic 2026-era narrative concept art, moody dramatic lighting"
+        # ── 1. Build a "portrait scene" text for the Scene Parser ────────────
+        # This gives the Scene Parser a rich context to extract from, even though
+        # it's a character portrait not a full scene.
+        traits_list = traits or []
+        trait_str   = ", ".join(traits_list) if traits_list else "enigmatic"
 
-        prompt_parts = [
-            f"A character portrait of '{char_name}'.",
+        portrait_scene_parts = [
+            f"A character portrait scene of {char_name}.",
         ]
-        if description:
-            prompt_parts.append(f"Story role and background: {description}.")
-        if visual_description:
-            prompt_parts.append(f"Physical appearance: {visual_description}.")
         if age:
-            prompt_parts.append(f"Age: {age}.")
+            portrait_scene_parts.append(f"{char_name} is {age} years old.")
+        if visual_description:
+            portrait_scene_parts.append(f"Physical appearance: {visual_description}.")
+        if description:
+            portrait_scene_parts.append(f"Story role: {description}.")
         if clothing:
-            prompt_parts.append(f"Wearing: {clothing}.")
-        prompt_parts.append(f"Personality traits: {trait_str}.")
-        prompt_parts.append(
-            f"Art direction: {style}, rich detailed textures, "
-            f"professional character design, 8K resolution. "
-            f"No text, no speech bubbles, no watermarks in the image."
+            portrait_scene_parts.append(f"They are wearing {clothing}.")
+        portrait_scene_parts.append(
+            f"Personality: {trait_str}. "
+            f"The portrait shows them in a dramatic close-up or medium shot, "
+            f"their expression conveying their character essence. "
+            f"The background is stylized but not distracting, keeping focus on the character."
         )
+        portrait_text = " ".join(portrait_scene_parts)
 
-        prompt = " ".join(prompt_parts)
-        logger.info(f"[DALL-E] Generating portrait for '{char_name}' | prompt: {prompt[:140]}...")
+        # ── 2. Build character visual profile ────────────────────────────────
+        char_data = {
+            "name":               char_name,
+            "age":                age,
+            "visual_description": visual_description,
+            "description":        description,
+            "clothing":           clothing,
+            "traits":             traits_list,
+        }
+        profile = build_visual_profile(char_data)
+        profiles = {char_name: profile}
 
-        # ── 2. Generate visual summary in parallel with Stability ────────────
-        import asyncio
+        # ── 3. Generate on-demand visual summary + image in parallel ─────────
         summary_task = asyncio.create_task(
-            _generate_visual_summary(char_name, description, visual_description, age, clothing, traits or [])
+            _generate_visual_summary(
+                char_name, description, visual_description,
+                age, clothing, traits_list
+            )
         )
 
-        # ── 3. Call Stability AI ────────────────────────────────────────────
-        stability_key = os.getenv("STABILITY_API_KEY")
-        if not stability_key:
-            logger.error("[Stability] Missing STABILITY_API_KEY")
-            return None, None
+        # Scene understanding for portrait (LLM enriches the portrait context)
+        understanding = await extract_scene_understanding(portrait_text)
 
-        async with httpx.AsyncClient() as http_client:
-            response = await http_client.post(
-                "https://api.stability.ai/v2beta/stable-image/generate/core",
-                headers={
-                    "Authorization": f"Bearer {stability_key}",
-                    "Accept": "image/*"
-                },
-                files={"none": ""},
-                data={
-                    "prompt": prompt,
-                    "output_format": "png",
-                    "aspect_ratio": "1:1"
-                },
-                timeout=60.0
+        # Assemble the cinematic prompt
+        style = art_style or "vibrant comic book portrait, clean expressive line art, anime-adjacent style, vivid colors, richly detailed"
+        prompt = await build_cinematic_prompt(understanding, profiles, style)
+
+        if not prompt:
+            # Fallback portrait prompt
+            prompt = (
+                f"Vibrant comic book illustration, clean expressive line art, anime-adjacent style, vivid colors. "
+                f"Character portrait of {profile}. "
+                f"Medium or close-up shot. Expressive face, clean detailed costume. "
+                f"No text, no speech bubbles, no captions, no watermarks."
             )
 
-            if response.status_code != 200:
-                logger.error(f"[Stability] API error {response.status_code}: {response.text}")
-                return None, None
+        logger.info(f"[Portrait] Prompt assembled for '{char_name}' | {prompt[:120]}...")
 
-            img_data = response.content
+        # ── 4. Generate image ─────────────────────────────────────────────────
+        img_bytes = await generate_gpt_image(prompt)
 
+        # Await the visual summary (should already be done)
         ai_visual_summary = await summary_task
 
-        logger.info(f"[Stability] Portrait generated for '{char_name}'")
-
-        # ── 4. Save locally ─────────────────────────────────────
+        # ── 5. Save locally ───────────────────────────────────────────────────
         safe_name = "".join([c if c.isalnum() else "_" for c in char_name.lower()])
-        filename = f"{project_id}_{safe_name}.png"
-        filepath = AVATAR_DIR / filename
+        filename  = f"{project_id}_{safe_name}.png"
+        filepath  = AVATAR_DIR / filename
 
         with open(filepath, "wb") as f:
-            f.write(img_data)
+            f.write(img_bytes)
 
         public_url = f"/avatars/{filename}"
+        logger.info(f"[Portrait] Saved portrait for '{char_name}' → {public_url}")
 
-        # ── 5. Update Supabase (both tables + ai_visual_summary) ─────────────
+        # ── 6. Update Supabase ────────────────────────────────────────────────
         pc_update = {"image_url": public_url}
         if ai_visual_summary:
             pc_update["ai_visual_summary"] = ai_visual_summary
@@ -187,14 +228,13 @@ async def generate_character_image(
             "project_id", project_id
         ).eq("name", char_name).execute()
 
-        # Also update extracted characters table (case-insensitive)
+        # Also update the NLP-extracted characters table
         supabase.table("characters").update({"image_url": public_url}).eq(
             "project_id", project_id
         ).ilike("name", char_name).execute()
 
-        logger.info(f"[Stability] Portrait saved for '{char_name}' → {public_url}")
         return public_url, ai_visual_summary
 
     except Exception as e:
-        logger.error(f"[Stability] Failed to generate image for '{char_name}': {e}")
+        logger.error(f"[Portrait] Failed to generate image for '{char_name}': {e}")
         return None, None

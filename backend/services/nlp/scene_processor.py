@@ -25,6 +25,11 @@ from lib.supabase import supabase
 from lib.redis_client import cache
 from tools.html_stripper import strip_html
 from services.nlp.entity_extractor import extract_entities, result_to_dict
+# BERT services — imported at module level so pre-loaded model singletons are
+# accessible immediately and don't pay the import-resolve cost on every call.
+from services.bert.sentiment_analyzer import analyze_sentiment
+from services.bert.emotion_classifier import classify_emotion
+from services.bert.arc_detector import detect_arc_change
 
 logger = logging.getLogger("nolan.nlp.processor")
 
@@ -59,8 +64,6 @@ async def run_scene_nlp(scene_id: str, project_id: str) -> dict:
     extraction_dict = result_to_dict(extraction)
 
     # ── Step 3: SENTIMENT & EMOTION (BERT) ───────────────────────────────────
-    from services.bert.sentiment_analyzer import analyze_sentiment
-    from services.bert.emotion_classifier import classify_emotion
 
     sentiment_res = analyze_sentiment(plain_text)
     sentiment_score = sentiment_res.get("score", 0.0)
@@ -73,7 +76,6 @@ async def run_scene_nlp(scene_id: str, project_id: str) -> dict:
     emotion_tags = [k for k, v in emotion_breakdown.items() if v > 0.2 and k != "neutral"]
 
     # ── Step 4: ARC VOLATILITY CHECK ─────────────────────────────────────────
-    from services.bert.arc_detector import detect_arc_change
     arc_warnings = []
     word_count = len(plain_text.split())
 
