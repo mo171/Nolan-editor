@@ -15,6 +15,7 @@ import { NeuralDashboard } from "@/features/editor/components/neural-dashboard";
 import { useParams } from "next/navigation";
 import { AnimaticPlayer } from "@/features/animatic/components/animatic-player";
 import { Loader2 } from "lucide-react";
+import { KlingVideoModal } from "@/features/video/components/kling-video-modal";
 
 function SidebarToggle({ side }) {
   const { sidebarOpen, setSidebarOpen, studioPanelOpen, setStudioPanelOpen } = useEditorContext();
@@ -48,7 +49,18 @@ function EditorLayout() {
     isAnimaticPlaybackOpen,
     animaticData,
     isAnimaticGenerating,
-    closeAnimaticPlayback
+    closeAnimaticPlayback,
+
+    // Kling Video
+    isVideoModalOpen,
+    isVideoGenerating,
+    videoUrl,
+    videoAudioUrl,
+    videoPrompt,
+    videoLoadingStage,
+    videoError,
+    closeVideoModal,
+    regenerateVideo
   } = useEditorContext();
   const [tiptapEditor, setTiptapEditor] = useState(null);
   const params = useParams();
@@ -139,6 +151,18 @@ function EditorLayout() {
           />
         )}
       </AnimatePresence>
+
+      <KlingVideoModal
+        isOpen={isVideoModalOpen}
+        isGenerating={isVideoGenerating}
+        videoUrl={videoUrl}
+        audioUrl={videoAudioUrl}
+        videoPrompt={videoPrompt}
+        loadingStage={videoLoadingStage}
+        error={videoError}
+        onClose={closeVideoModal}
+        onRegenerate={regenerateVideo}
+      />
 
       {/* Global Generation Overlay */}
       <AnimatePresence>

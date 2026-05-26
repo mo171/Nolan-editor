@@ -27,7 +27,18 @@ from lib.redis_client import cache
 from lib.supabase import supabase
 
 # Routers
-from routers import projects, chapters, scenes, characters, comics, ws, lint, animate, analytics
+from routers import (
+    projects,
+    chapters,
+    scenes,
+    characters,
+    comics,
+    ws,
+    lint,
+    animate,
+    analytics,
+    video,
+)
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 
@@ -40,6 +51,7 @@ logger = logging.getLogger("nolan.app")
 
 
 # ─── Lifespan (startup / shutdown) ───────────────────────────────────────────
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -57,7 +69,9 @@ async def lifespan(app: FastAPI):
         await cache.connect()
         logger.info("✅ Redis connected")
     except Exception as e:
-        logger.warning(f"⚠️  Redis unavailable ({e}) — caching disabled, app will still run")
+        logger.warning(
+            f"⚠️  Redis unavailable ({e}) — caching disabled, app will still run"
+        )
 
     # ── Supabase connectivity check ──────────────────────────────────────────
     try:
@@ -70,6 +84,7 @@ async def lifespan(app: FastAPI):
     # ── Neo4j connection pool initialization ──────────────────────────────────
     try:
         from lib.neo4j_client import get_neo4j_driver
+
         driver = get_neo4j_driver()
         if driver:
             logger.info("✅ Neo4j connection pool initialized")
@@ -78,10 +93,13 @@ async def lifespan(app: FastAPI):
 
     # ── Phase 2+ model singleton loading ──────────────────────────────────────
     from services.nlp.pipeline import load_spacy
+
     try:
         load_spacy()
     except Exception as e:
-        logger.warning(f"⚠️  spaCy model not loaded: {e} — run: python -m spacy download en_core_web_lg")
+        logger.warning(
+            f"⚠️  spaCy model not loaded: {e} — run: python -m spacy download en_core_web_lg"
+        )
 
     # ── Pre-load all BERT / embedding models ──────────────────────────────────
     # Without pre-loading, each model is downloaded+loaded on the FIRST request
@@ -91,6 +109,7 @@ async def lifespan(app: FastAPI):
     logger.info("Pre-loading BERT emotion classifier...")
     try:
         from services.bert.emotion_classifier import _get_pipeline as _load_emotion
+
         _load_emotion()
         logger.info("✅ Emotion classifier loaded")
     except Exception as e:
@@ -99,6 +118,7 @@ async def lifespan(app: FastAPI):
     logger.info("Pre-loading BERT sentiment analyzer...")
     try:
         from services.bert.sentiment_analyzer import _get_pipeline as _load_sentiment
+
         _load_sentiment()
         logger.info("✅ Sentiment analyzer loaded")
     except Exception as e:
@@ -107,6 +127,7 @@ async def lifespan(app: FastAPI):
     logger.info("Pre-loading zero-shot arc detector (DistilBART)...")
     try:
         from services.bert.arc_detector import PersonaDetector
+
         PersonaDetector.get_instance()._ensure_model()
         logger.info("✅ Arc detector loaded")
     except Exception as e:
@@ -115,11 +136,11 @@ async def lifespan(app: FastAPI):
     logger.info("Pre-loading sentence-transformers embedding model...")
     try:
         from services.rag.indexer import get_embedding_model
+
         get_embedding_model()
         logger.info("✅ Embedding model loaded")
     except Exception as e:
         logger.warning(f"⚠️  Embedding model failed to pre-load: {e}")
-
 
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info("  Server ready")
@@ -129,14 +150,15 @@ async def lifespan(app: FastAPI):
 
     # ── Shutdown ─────────────────────────────────────────────────────────────
     logger.info("Shutting down...")
-    
+
     # Close Redis
     await cache.disconnect()
     logger.info("✅ Redis disconnected cleanly")
-    
+
     # Close Neo4j driver
     try:
         from lib.neo4j_client import close_neo4j_driver
+
         close_neo4j_driver()
     except Exception as e:
         logger.warning(f"Neo4j cleanup warning: {e}")
@@ -159,7 +181,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",   # Next.js dev
+        "http://localhost:3000",  # Next.js dev
         "http://localhost:3001",
         # Add your production domain here later
     ],
@@ -171,6 +193,7 @@ app.add_middleware(
 
 # ─── Request timing middleware (dev visibility) ───────────────────────────────
 
+
 @app.middleware("http")
 async def add_timing_header(request: Request, call_next):
     start = time.perf_counter()
@@ -178,11 +201,14 @@ async def add_timing_header(request: Request, call_next):
     elapsed_ms = (time.perf_counter() - start) * 1000
     response.headers["X-Response-Time-Ms"] = f"{elapsed_ms:.1f}"
     if elapsed_ms > 500:
-        logger.warning(f"SLOW REQUEST {request.method} {request.url.path} → {elapsed_ms:.0f}ms")
+        logger.warning(
+            f"SLOW REQUEST {request.method} {request.url.path} → {elapsed_ms:.0f}ms"
+        )
     return response
 
 
 # ─── Global error handler ─────────────────────────────────────────────────────
+
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -204,9 +230,11 @@ app.include_router(ws.router)
 app.include_router(lint.router)
 app.include_router(animate.router)
 app.include_router(analytics.router)
+app.include_router(video.router)
 
 
 # ─── Health check ─────────────────────────────────────────────────────────────
+
 
 @app.get("/health", tags=["system"])
 async def health():
@@ -229,4 +257,5 @@ async def health():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

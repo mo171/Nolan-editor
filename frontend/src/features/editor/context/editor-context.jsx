@@ -70,6 +70,15 @@ export function EditorProvider({ children }) {
   const [animaticData, setAnimaticData] = useState(null);
   const [isAnimaticPlaybackOpen, setIsAnimaticPlaybackOpen] = useState(false);
 
+  // ── Kling Video State ──────────────────────────────────────────────────────
+  const [isVideoModalOpen,   setIsVideoModalOpen]   = useState(false);
+  const [isVideoGenerating,  setIsVideoGenerating]  = useState(false);
+  const [videoUrl,           setVideoUrl]           = useState(null);
+  const [videoAudioUrl,      setVideoAudioUrl]      = useState(null);
+  const [videoPrompt,        setVideoPrompt]        = useState("");
+  const [videoLoadingStage,  setVideoLoadingStage]  = useState("scenes");
+  const [videoError,         setVideoError]         = useState(null);
+
   // Neural Analytics State
   const [neuralStats, setNeuralStats] = useState(null);
   const [isNeuralSyncing, setIsNeuralSyncing] = useState(false);
@@ -433,7 +442,82 @@ export function EditorProvider({ children }) {
     // Optional: setAnimaticData(null) if we want to clear it
   }, []);
 
-  // ─── Neural Analytics Actions ─────────────────────────────────────────────
+  // ─── Kling Video Actions ──────────────────────────────────────────────────
+
+  // Stage-progression helper — simulates frontend stage advancement during
+  // the long Kling poll so the UI feels alive and informative.
+  const _advanceStage = useCallback(() => {
+    const STAGES = ["scenes", "prompt", "submit", "render", "compose", "done"];
+    let i = 0;
+    const iv = setInterval(() => {
+      i = Math.min(i + 1, STAGES.length - 2); // stop one before "done" — backend signals that
+      setVideoLoadingStage(STAGES[i]);
+    }, 18000); // ~18s per stage-step → covers ~90s total
+    return () => clearInterval(iv);
+  }, []);
+
+  // Load saved video for this project on mount (or when projectId changes)
+  useEffect(() => {
+    if (!projectId) return;
+    const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    fetch(`${API}/api/video/project/${projectId}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.video_url) {
+          setVideoUrl(data.video_url);
+          setVideoAudioUrl(data.audio_url || null);
+          setVideoPrompt(data.prompt || "");
+        }
+      })
+      .catch(() => {}); // silent — video is optional
+  }, [projectId]);
+
+  const generateVideo = useCallback(async (forceRegenerate = false) => {
+    if (!projectId) return;
+    setIsVideoModalOpen(true);
+    setIsVideoGenerating(true);
+    setVideoError(null);
+    setVideoLoadingStage("scenes");
+
+    const stopStageTimer = _advanceStage();
+
+    try {
+      const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const response = await fetch(`${API}/api/video/generate`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id:       projectId,
+          force_regenerate: forceRegenerate,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || "Video generation failed");
+      }
+
+      const data = await response.json();
+      setVideoLoadingStage("done");
+      setVideoUrl(data.video_url);
+      setVideoAudioUrl(data.audio_url || null);
+      setVideoPrompt(data.prompt || "");
+    } catch (err) {
+      console.error("[KlingVideo] Generation error:", err);
+      setVideoError(err.message || "An unexpected error occurred");
+    } finally {
+      stopStageTimer();
+      setIsVideoGenerating(false);
+    }
+  }, [projectId, _advanceStage]);
+
+  const closeVideoModal = useCallback(() => {
+    setIsVideoModalOpen(false);
+  }, []);
+
+  const regenerateVideo = useCallback(() => {
+    generateVideo(true); // force = true
+  }, [generateVideo]);
   const syncNeuralStats = useCallback(async () => {
     if (!projectId || !activeScene) return;
     
@@ -543,6 +627,18 @@ export function EditorProvider({ children }) {
     isAnimaticPlaybackOpen,
     generateAnimatic,
     closeAnimaticPlayback,
+
+    // Kling Video
+    isVideoModalOpen,
+    isVideoGenerating,
+    videoUrl,
+    videoAudioUrl,
+    videoPrompt,
+    videoLoadingStage,
+    videoError,
+    generateVideo,
+    closeVideoModal,
+    regenerateVideo,
 
     // Neural
     neuralStats,

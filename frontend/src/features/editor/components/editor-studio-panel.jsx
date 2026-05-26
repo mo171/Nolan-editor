@@ -22,7 +22,8 @@ import {
   Film,
   PlayCircle,
   Loader2,
-  Zap
+  Zap,
+  Clapperboard
 } from "lucide-react";
 import { useEditorContext } from "@/features/editor/context/editor-context";
 import { NeuralPulseChart } from "./neural-pulse-chart";
@@ -92,6 +93,15 @@ const STUDIO_GRID = [
     iconColor: "text-indigo-400",
     glow: "rgba(129,140,248,0.15)",
   },
+  {
+    id: "kling-video",
+    icon: Clapperboard,
+    label: "Generate Video",
+    description: "Kling AI Cinematic",
+    color: "from-[#ba9eff]/20 to-[#ba9eff]/5",
+    iconColor: "text-[#ba9eff]",
+    glow: "rgba(186,158,255,0.15)",
+  },
 ];
 
 const AUDIO_LANGS = ["हिन्दी", "বাংলা", "ਕਾਤਲਾ", "ಕನ್ನಡ", "मराठी", "বাংলা..."];
@@ -135,7 +145,8 @@ export function EditorStudioPanel() {
     neuralStats,
     isNeuralSyncing,
     syncNeuralStats,
-    setActiveView
+    setActiveView,
+    generateVideo
   } = useEditorContext();
 
   const [activeTab, setActiveTab] = useState("grid"); // 'grid' | 'analytics' is partially handled by activeView now
@@ -443,6 +454,7 @@ export function EditorStudioPanel() {
                       key={item.id}
                       onClick={() => {
                         if (item.id === "animate") openVoiceModal();
+                        if (item.id === "kling-video") generateVideo(false);
                         if (item.id === "analytics") setActiveView("analytics");
                       }}
                       whileHover={{ scale: 1.03, y: -2 }}
