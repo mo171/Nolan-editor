@@ -51,7 +51,6 @@ pdfplumber==0.11.4
 pypdf==5.1.0
 langchain-community==0.3.0
 reportlab==4.2.0
-Pillow==10.3.0
 
 # Async file helpers
 aiofiles==24.1.0

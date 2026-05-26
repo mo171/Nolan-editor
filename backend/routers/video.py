@@ -23,8 +23,12 @@ from typing import List, Optional, Tuple
 import httpx
 import numpy as np
 from fastapi import APIRouter, HTTPException
-from PIL import Image
 from pydantic import BaseModel
+
+try:
+    from PIL import Image
+except Exception:
+    Image = None
 
 from lib.supabase import supabase
 
@@ -155,6 +159,9 @@ async def _load_image(image_url: str) -> Optional[np.ndarray]:
     Returns None if loading fails (expired URL, missing file, etc.)
     """
     try:
+        if Image is None:
+            return None
+
         if image_url.startswith("/"):
             # Local path served by Next.js — resolve against frontend/public/
             local_path = BASE_DIR / "frontend" / "public" / image_url.lstrip("/")
@@ -184,6 +191,9 @@ async def _load_image(image_url: str) -> Optional[np.ndarray]:
 
 def _effect_pan_right(img: np.ndarray, n: int) -> List[np.ndarray]:
     """Pan from left side to right side of the image (slight crop + slide)."""
+    if Image is None:
+        return [img.copy() for _ in range(n)]
+
     h, w = img.shape[:2]
     crop_w = int(w * 0.85)   # show 85% width, pan across the rest
     frames = []
@@ -198,6 +208,9 @@ def _effect_pan_right(img: np.ndarray, n: int) -> List[np.ndarray]:
 
 def _effect_pan_left(img: np.ndarray, n: int) -> List[np.ndarray]:
     """Pan from right side to left."""
+    if Image is None:
+        return [img.copy() for _ in range(n)]
+
     h, w  = img.shape[:2]
     crop_w = int(w * 0.85)
     frames = []
@@ -212,6 +225,9 @@ def _effect_pan_left(img: np.ndarray, n: int) -> List[np.ndarray]:
 
 def _effect_zoom_in(img: np.ndarray, n: int) -> List[np.ndarray]:
     """Slow push-in zoom (Ken Burns classic)."""
+    if Image is None:
+        return [img.copy() for _ in range(n)]
+
     h, w   = img.shape[:2]
     frames = []
     for i in range(n):
@@ -227,6 +243,9 @@ def _effect_zoom_in(img: np.ndarray, n: int) -> List[np.ndarray]:
 
 def _effect_zoom_out(img: np.ndarray, n: int) -> List[np.ndarray]:
     """Pull-out zoom."""
+    if Image is None:
+        return [img.copy() for _ in range(n)]
+
     h, w   = img.shape[:2]
     frames = []
     for i in range(n):
@@ -242,6 +261,9 @@ def _effect_zoom_out(img: np.ndarray, n: int) -> List[np.ndarray]:
 
 def _effect_tilt_up(img: np.ndarray, n: int) -> List[np.ndarray]:
     """Slow tilt up (pan from bottom to top)."""
+    if Image is None:
+        return [img.copy() for _ in range(n)]
+
     h, w   = img.shape[:2]
     crop_h = int(h * 0.85)
     frames = []
@@ -256,6 +278,9 @@ def _effect_tilt_up(img: np.ndarray, n: int) -> List[np.ndarray]:
 
 def _effect_tilt_down(img: np.ndarray, n: int) -> List[np.ndarray]:
     """Slow tilt down (pan from top to bottom)."""
+    if Image is None:
+        return [img.copy() for _ in range(n)]
+
     h, w   = img.shape[:2]
     crop_h = int(h * 0.85)
     frames = []
