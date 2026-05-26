@@ -36,11 +36,12 @@ beautifulsoup4==4.12.3
 lxml==5.3.0
 
 # NLP / LLM core features
-spacy==3.8.2
+# spaCy wheels may lag on newest Python releases; skip on 3.14+ to keep deploy green.
+spacy==3.8.2; python_version < "3.14"
 langchain==0.3.0
 langchain-openai==0.2.0
 openai==1.54.0
-tiktoken==0.8.0
+tiktoken==0.8.0; python_version < "3.14"
 
 # Graph / editor extras
 neo4j==5.26.0
