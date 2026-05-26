@@ -9,7 +9,7 @@ import { useAuth } from "@/store/authStore";
  * Maps frontend camelCase field names → backend snake_case schema.
  */
 export function useCreateProject() {
-  const { session } = useAuth();
+  const { user } = useAuth();
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState(null);
 
@@ -18,7 +18,7 @@ export function useCreateProject() {
     setError(null);
     try {
       const payload = {
-        user_id:              session?.user?.id ?? "",
+        user_id:              user?.id ?? "",
         title:                formData.title,
         genre:                formData.genre,
         premise:              formData.premise,
@@ -44,7 +44,7 @@ export function useCreateProject() {
       const project = await apiFetch("/api/projects", {
         method: "POST",
         body: JSON.stringify(payload),
-      }, session?.access_token);
+      });
 
       return project; // { id, title, ... }
     } catch (err) {

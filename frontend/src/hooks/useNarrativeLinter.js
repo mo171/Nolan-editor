@@ -7,7 +7,6 @@ import { useAuth } from "@/store/authStore";
 const LINT_DEBOUNCE_MS = 2500; // 2.5s to avoid choppy keystrokes
 
 export function useNarrativeLinter(editor, projectId, activeSceneId) {
-  const { session } = useAuth();
   const timerRef = useRef(null);
   // Store requestLint in a ref so the editor event listener is stable.
   // The onUpdate handler only reads from this ref, so it always has the latest
@@ -24,8 +23,7 @@ export function useNarrativeLinter(editor, projectId, activeSceneId) {
         {
           method: "POST",
           body: JSON.stringify({ text, project_id: projectId }),
-        },
-        session?.access_token
+        }
       );
       
       const suggestions = result?.suggestions || [];
@@ -92,7 +90,7 @@ export function useNarrativeLinter(editor, projectId, activeSceneId) {
     } catch (error) {
       console.error("[useNarrativeLinter] Error:", error);
     }
-  }, [projectId, activeSceneId, editor, session]);
+  }, [projectId, activeSceneId, editor]);
 
   // Keep the ref in sync with the latest callback on every render
   useEffect(() => {

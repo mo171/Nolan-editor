@@ -9,7 +9,7 @@ import { useAuth } from "@/store/authStore";
  * Returns { projects, isLoading, error, refetch }
  */
 export function useProjects() {
-  const { session, user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const [projects, setProjects] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -24,8 +24,7 @@ export function useProjects() {
     try {
       const data = await apiFetch(
         `/api/projects?user_id=${user.id}`,
-        {},
-        session?.access_token
+        {}
       );
       setProjects(data ?? []);
     } catch (err) {
@@ -33,20 +32,19 @@ export function useProjects() {
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, user?.id, session?.access_token]);
+  }, [isAuthenticated, user?.id]);
 
   useEffect(() => {
     fetchProjects();
   }, [fetchProjects]);
 
   const deleteProject = useCallback(async (projectId) => {
-    if (!isAuthenticated || !session?.access_token) return;
+    if (!isAuthenticated) return;
     
     try {
       await apiFetch(
         `/api/projects/${projectId}`,
-        { method: "DELETE" },
-        session.access_token
+        { method: "DELETE" }
       );
       // Optimistically update local state with a fresh array reference to trigger re-renders
       setProjects((prev) => [...prev.filter((p) => p.id !== projectId)]);
@@ -54,7 +52,7 @@ export function useProjects() {
       console.error("[useProjects] Delete failed:", err);
       throw err;
     }
-  }, [isAuthenticated, session?.access_token]);
+  }, [isAuthenticated]);
 
   return { projects, isLoading, error, refetch: fetchProjects, deleteProject };
 }

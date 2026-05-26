@@ -2,16 +2,17 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 /**
  * Base fetch helper for all Nolan API calls.
- * Automatically attaches Content-Type and the Supabase JWT when provided.
+ * Automatically attaches Content-Type.
  *
  * @param {string} path - e.g. "/api/projects"
  * @param {object} options - standard fetch options
- * @param {string} [token] - Supabase session.access_token (optional)
+ * @param {string} [token] - kept for backwards compatibility; ignored in demo mode
  */
 export async function apiFetch(path, options = {}, token = null) {
   const headers = {
     "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    // Demo mode bypasses bearer-token gating for database requests.
+    // ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options.headers || {}),
   };
 

@@ -27,9 +27,6 @@ export function useDnaUpload() {
 
       const res = await fetch(`${API_URL}/api/projects/${projectId}/dna-upload`, {
         method: "POST",
-        headers: session?.access_token
-          ? { Authorization: `Bearer ${session.access_token}` }
-          : {},
         body: formData,
       });
 

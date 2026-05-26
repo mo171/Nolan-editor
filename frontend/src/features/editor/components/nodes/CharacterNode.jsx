@@ -2,12 +2,10 @@ import React, { memo, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { User, Sparkles, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
-import { useAuthStore } from '@/store/authStore';
 
 const CharacterNode = ({ data, id: nodeId, selected }) => {
   const { label, role, traits, image_url, project_id } = data;
   const [isGenerating, setIsGenerating] = useState(false);
-  const token = useAuthStore(state => state.session?.access_token);
 
   const handleGenerate = async (e) => {
     e.stopPropagation();
@@ -17,7 +15,7 @@ const CharacterNode = ({ data, id: nodeId, selected }) => {
       setIsGenerating(true);
       await apiFetch(`/api/projects/${project_id}/characters/${label}/generate-image`, {
         method: 'POST'
-      }, token);
+      });
       
       if (data.onRefreshGraph) {
         data.onRefreshGraph();
@@ -46,7 +44,7 @@ const CharacterNode = ({ data, id: nodeId, selected }) => {
           <img 
             src={image_url} 
             alt={label} 
-            className="w-full h-full object-cover grayscale-[20%] hover:grayscale-0 transition-all duration-700 hover:scale-110" 
+            className="w-full h-full object-cover grayscale-20 hover:grayscale-0 transition-all duration-700 hover:scale-110" 
           />
         ) : (
           <div 
@@ -65,7 +63,7 @@ const CharacterNode = ({ data, id: nodeId, selected }) => {
             )}
           </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#131316] to-transparent opacity-60 pointer-events-none" />
+        <div className="absolute inset-0 bg-linear-to-t from-[#131316] to-transparent opacity-60 pointer-events-none" />
       </div>
 
       {/* Content */}
@@ -87,10 +85,10 @@ const CharacterNode = ({ data, id: nodeId, selected }) => {
       </div>
 
       {/* Handles */}
-      <Handle type="target" position={Position.Top} className="!bg-[#ba9eff]" />
-      <Handle type="source" position={Position.Bottom} className="!bg-[#ba9eff]" />
-      <Handle type="source" position={Position.Left} className="!bg-[#ba9eff]/40" />
-      <Handle type="target" position={Position.Right} className="!bg-[#ba9eff]/40" />
+      <Handle type="target" position={Position.Top} className="bg-[#ba9eff]!" />
+      <Handle type="source" position={Position.Bottom} className="bg-[#ba9eff]!" />
+      <Handle type="source" position={Position.Left} className="bg-[#ba9eff]/40!" />
+      <Handle type="target" position={Position.Right} className="bg-[#ba9eff]/40!" />
     </div>
   );
 };

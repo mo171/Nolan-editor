@@ -1,6 +1,16 @@
 import { create } from "zustand";
 import { supabase } from "@/lib/supabase";
 
+const DEMO_USER = {
+  id: "fc05c627-589b-4f2e-a8bf-b66818cd6c54",
+  email: "movindsouza79@gmail.com",
+};
+
+const DEMO_SESSION = {
+  user: DEMO_USER,
+  access_token: null,
+};
+
 // ============================================
 // AUTH STORE
 // ============================================
@@ -40,19 +50,13 @@ export const useAuthStore = create((set, get) => ({
   signUp: async (email, password) => {
     set({ loading: true, authError: { signup: undefined } });
     try {
-      const { error, data } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
-      });
-
-      if (error) throw error;
-
+      // Demo mode keeps every browser on the same shared account.
       set({
-        error: "Check your email for verification link",
-        authError: { signup: "Check your email for verification link" },
+        user: DEMO_USER,
+        session: DEMO_SESSION,
+        isAuthenticated: true,
+        error: null,
+        authError: { signup: undefined },
       });
     } catch (error) {
       const errorMessage = error.message || "Sign up failed";
@@ -72,23 +76,14 @@ export const useAuthStore = create((set, get) => ({
   signIn: async (email, password) => {
     set({ loading: true, authError: { login: undefined } });
     try {
-      const { error, data } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      // Demo mode keeps every browser on the same shared account.
+      set({
+        user: DEMO_USER,
+        session: DEMO_SESSION,
+        isAuthenticated: true,
+        error: null,
+        authError: { login: undefined },
       });
-
-      if (error) throw error;
-
-      if (data.user) {
-        set({
-          user: data.user,
-          session: data.session,
-          isAuthenticated: true,
-        });
-        // await get().getUserProfile();
-      }
-
-      set({ error: null });
     } catch (error) {
       const errorMessage = error.message || "Sign in failed";
       set({
@@ -107,14 +102,12 @@ export const useAuthStore = create((set, get) => ({
   signOut: async () => {
     set({ loading: true, authError: { logout: undefined } });
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-
+      // Demo mode keeps the shared account active across browsers.
       set({
-        user: null,
+        user: DEMO_USER,
         userProfile: null,
-        session: null,
-        isAuthenticated: false,
+        session: DEMO_SESSION,
+        isAuthenticated: true,
         error: null,
       });
     } catch (error) {
@@ -242,73 +235,14 @@ export const useAuthStore = create((set, get) => ({
   initializeAuth: async () => {
     set({ loading: true });
     try {
-      // Check active session
-      const {
-        data: { session },
-        error,
-      } = await supabase.auth.getSession();
-
-      if (error) throw error;
-
-      if (session) {
-        set({
-          session,
-          user: session.user,
-          isAuthenticated: true,
-        });
-      } else {
-        // Fallback to local dev user if no supabase session exists
-        const devUser = {
-          id: "fc05c627-589b-4f2e-a8bf-b66818cd6c54",
-          email: "dev@nolan.ai",
-        };
-        set({
-          user: devUser,
-          session: { user: devUser, access_token: null },
-          isAuthenticated: true,
-          userProfile: null,
-        });
-      }
-
-      // Listen for auth changes
-      const {
-        data: { subscription },
-      } = supabase.auth.onAuthStateChange(async (event, session) => {
-        console.log("🔐 Auth event:", event);
-
-        if (session) {
-          const { user } = get();
-          // Only update if the user actually changed to avoid unnecessary re-fetches
-          if (!user || user.id !== session.user.id) {
-            set({
-              session,
-              user: session.user,
-              isAuthenticated: true,
-            });
-            // await get().getUserProfile();
-          } else {
-            // Just update session token if user is same
-            set({ session });
-          }
-        } else {
-          // Keep local dev session alive instead of logging out
-          const devUser = {
-            id: "fc05c627-589b-4f2e-a8bf-b66818cd6c54",
-            email: "dev@nolan.ai",
-          };
-          set({
-            session: { user: devUser, access_token: null },
-            user: devUser,
-            isAuthenticated: true,
-            userProfile: null,
-          });
-        }
-        set({ loading: false });
+      set({
+        user: DEMO_USER,
+        session: DEMO_SESSION,
+        isAuthenticated: true,
+        userProfile: null,
       });
-
       set({ loading: false });
-
-      return () => subscription?.unsubscribe();
+      return () => {};
     } catch (error) {
       console.error("❌ Auth initialization error:", error);
       set({ error: error.message, loading: false });

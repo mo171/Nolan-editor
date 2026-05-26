@@ -12,7 +12,6 @@ const DEBOUNCE_MS = 2000; // 2s after user stops typing
  * Backend fires the NLP pipeline in the background after saving.
  */
 export function useSaveScene({ onSaving, onSaved, onError } = {}) {
-  const { session } = useAuth();
   const timerRef = useRef(null);
 
   const saveScene = useCallback(
@@ -39,8 +38,7 @@ export function useSaveScene({ onSaving, onSaved, onError } = {}) {
             {
               method: "PUT",
               body: JSON.stringify({ content, project_id: projectId }),
-            },
-            session?.access_token
+            }
           );
           onSaved?.();
         } catch (err) {
@@ -49,7 +47,7 @@ export function useSaveScene({ onSaving, onSaved, onError } = {}) {
         }
       }, DEBOUNCE_MS);
     },
-    [session?.access_token, onSaving, onSaved, onError]
+    [onSaving, onSaved, onError]
   );
 
   // Flush immediately (e.g. when user navigates away)

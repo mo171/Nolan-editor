@@ -5,8 +5,6 @@ import { apiFetch } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 
 export function useAvatarGeneration(projectId, allCharacters, onSuccess) {
-  const token = useAuthStore(state => state.session?.access_token);
-  
   const pendingChars = allCharacters?.filter(c => !c.image_url) || [];
   
   const [currentCharIndex, setCurrentCharIndex] = useState(0);
@@ -54,7 +52,7 @@ export function useAvatarGeneration(projectId, allCharacters, onSuccess) {
       const res = await apiFetch(`/api/projects/${projectId}/characters/${currentChar.name}/generate-image`, {
         method: 'POST',
         body: JSON.stringify(payload)
-      }, token);
+      });
 
       if (res.status === 'ok') {
         // success!

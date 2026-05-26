@@ -31,15 +31,13 @@ const KnowledgeGraphCanvas = ({ projectId }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const session = useAuthStore(state => state.session);
-  const token = session?.access_token;
 
   // Fetch Graph Data
   const fetchGraph = useCallback(async () => {
     if (!projectId) return;
     try {
       setIsLoading(true);
-      const data = await apiFetch(`/api/projects/${projectId}/visual-graph`, {}, token);
+      const data = await apiFetch(`/api/projects/${projectId}/visual-graph`);
       
       // Basic Grid Layout for nodes with 0,0 position
       const processedNodes = data.nodes.map((node, index) => {
@@ -96,7 +94,7 @@ const KnowledgeGraphCanvas = ({ projectId }) => {
       await apiFetch(`/api/projects/${projectId}/visual-graph/positions`, {
         method: 'PATCH',
         body: JSON.stringify({ positions: updates })
-      }, token);
+      });
     } catch (err) {
       console.error("Failed to sync positions:", err);
     }

@@ -9,7 +9,6 @@ import { useAuth } from "@/store/authStore";
  * Drives the editor's initial state hydration.
  */
 export function useProjectData(projectId) {
-  const { session } = useAuth();
   const [projectData, setProjectData] = useState(null);
   const [isLoading, setIsLoading] = useState(!!projectId);
   const [error, setError] = useState(null);
@@ -24,8 +23,7 @@ export function useProjectData(projectId) {
     try {
       const data = await apiFetch(
         `/api/projects/${projectId}`,
-        {},
-        session?.access_token
+        {}
       );
       setProjectData(data);
     } catch (err) {
@@ -33,7 +31,7 @@ export function useProjectData(projectId) {
     } finally {
       setIsLoading(false);
     }
-  }, [projectId, session?.access_token]);
+  }, [projectId]);
 
   useEffect(() => {
     fetchProject();
