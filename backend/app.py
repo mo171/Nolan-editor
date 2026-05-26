@@ -16,6 +16,7 @@ Low Latency Stack:
 """
 
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 
@@ -48,6 +49,37 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("nolan.app")
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _split_csv_env(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _get_cors_origins() -> list[str]:
+    explicit_origins = _split_csv_env(os.getenv("BACKEND_CORS_ORIGINS"))
+    if explicit_origins:
+        return explicit_origins
+
+    origins = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://nolan-editor-f6mw.vercel.app",
+    ]
+
+    frontend_url = os.getenv("FRONTEND_URL")
+    if frontend_url:
+        origins.append(frontend_url)
+
+    return list(dict.fromkeys(origins))
 
 
 # ─── Lifespan (startup / shutdown) ───────────────────────────────────────────
@@ -91,56 +123,55 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️  Neo4j unavailable ({e}) — graph features disabled")
 
-    # ── Phase 2+ model singleton loading ──────────────────────────────────────
-    from services.nlp.pipeline import load_spacy
+    if _env_flag("NOLAN_PRELOAD_MODELS", False):
+        from services.nlp.pipeline import load_spacy
 
-    try:
-        load_spacy()
-    except Exception as e:
-        logger.warning(
-            f"⚠️  spaCy model not loaded: {e} — run: python -m spacy download en_core_web_lg"
+        try:
+            load_spacy()
+        except Exception as e:
+            logger.warning(
+                f"⚠️  spaCy model not loaded: {e} — run: python -m spacy download en_core_web_lg"
+            )
+
+        logger.info("Pre-loading BERT emotion classifier...")
+        try:
+            from services.bert.emotion_classifier import _get_pipeline as _load_emotion
+
+            _load_emotion()
+            logger.info("✅ Emotion classifier loaded")
+        except Exception as e:
+            logger.warning(f"⚠️  Emotion classifier failed to pre-load: {e}")
+
+        logger.info("Pre-loading BERT sentiment analyzer...")
+        try:
+            from services.bert.sentiment_analyzer import _get_pipeline as _load_sentiment
+
+            _load_sentiment()
+            logger.info("✅ Sentiment analyzer loaded")
+        except Exception as e:
+            logger.warning(f"⚠️  Sentiment analyzer failed to pre-load: {e}")
+
+        logger.info("Pre-loading zero-shot arc detector (DistilBART)...")
+        try:
+            from services.bert.arc_detector import PersonaDetector
+
+            PersonaDetector.get_instance()._ensure_model()
+            logger.info("✅ Arc detector loaded")
+        except Exception as e:
+            logger.warning(f"⚠️  Arc detector failed to pre-load: {e}")
+
+        logger.info("Pre-loading sentence-transformers embedding model...")
+        try:
+            from services.rag.indexer import get_embedding_model
+
+            get_embedding_model()
+            logger.info("✅ Embedding model loaded")
+        except Exception as e:
+            logger.warning(f"⚠️  Embedding model failed to pre-load: {e}")
+    else:
+        logger.info(
+            "Skipping model preloading on startup. Set NOLAN_PRELOAD_MODELS=1 to enable warmup."
         )
-
-    # ── Pre-load all BERT / embedding models ──────────────────────────────────
-    # Without pre-loading, each model is downloaded+loaded on the FIRST request
-    # that needs it, causing a 5-30s latency spike. We load them eagerly at
-    # startup so all requests after boot get fast cached inference.
-
-    logger.info("Pre-loading BERT emotion classifier...")
-    try:
-        from services.bert.emotion_classifier import _get_pipeline as _load_emotion
-
-        _load_emotion()
-        logger.info("✅ Emotion classifier loaded")
-    except Exception as e:
-        logger.warning(f"⚠️  Emotion classifier failed to pre-load: {e}")
-
-    logger.info("Pre-loading BERT sentiment analyzer...")
-    try:
-        from services.bert.sentiment_analyzer import _get_pipeline as _load_sentiment
-
-        _load_sentiment()
-        logger.info("✅ Sentiment analyzer loaded")
-    except Exception as e:
-        logger.warning(f"⚠️  Sentiment analyzer failed to pre-load: {e}")
-
-    logger.info("Pre-loading zero-shot arc detector (DistilBART)...")
-    try:
-        from services.bert.arc_detector import PersonaDetector
-
-        PersonaDetector.get_instance()._ensure_model()
-        logger.info("✅ Arc detector loaded")
-    except Exception as e:
-        logger.warning(f"⚠️  Arc detector failed to pre-load: {e}")
-
-    logger.info("Pre-loading sentence-transformers embedding model...")
-    try:
-        from services.rag.indexer import get_embedding_model
-
-        get_embedding_model()
-        logger.info("✅ Embedding model loaded")
-    except Exception as e:
-        logger.warning(f"⚠️  Embedding model failed to pre-load: {e}")
 
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info("  Server ready")
@@ -180,11 +211,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",  # Next.js dev
-        "http://localhost:3001",
-        # Add your production domain here later
-    ],
+    allow_origins=_get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -258,4 +285,6 @@ async def health():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    port = int(os.getenv("PORT", "8000"))
+    reload_enabled = _env_flag("UVICORN_RELOAD", False)
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=reload_enabled)
