@@ -1,8 +1,12 @@
-import edge_tts
 import asyncio
 import os
 import logging
 from pathlib import Path
+
+try:
+    import edge_tts
+except Exception:
+    edge_tts = None
 
 logger = logging.getLogger("nolan.audio.tts")
 
@@ -32,6 +36,10 @@ class TTSService:
         Generates an MP3 file from text using edge-tts.
         Allows for styling via pitch and rate.
         """
+        if edge_tts is None:
+            logger.warning("[TTS] edge-tts is not installed. Skipping audio generation.")
+            return False
+
         max_retries = 3
         for attempt in range(max_retries):
             try:

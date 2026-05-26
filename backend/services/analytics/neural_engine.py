@@ -1,6 +1,5 @@
 import os
 import json
-import torch
 import logging
 import traceback
 import numpy as np

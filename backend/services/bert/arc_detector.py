@@ -5,13 +5,14 @@ Detects if character behavior randomly shifts without preceding events.
 """
 
 import logging
-
-logger = logging.getLogger("nolan.bert.arc_detector")
-
-from transformers import pipeline
 from typing import Optional, List
 
 logger = logging.getLogger("nolan.bert.arc_detector")
+
+try:
+    from transformers import pipeline
+except Exception:
+    pipeline = None
 
 # Fallback volatility map for emotional jumps
 VOLATILITY_MAP = {
@@ -39,6 +40,9 @@ class PersonaDetector:
 
     def _ensure_model(self):
         if self.classifier is None:
+            if pipeline is None:
+                logger.warning("[Arc] transformers not installed. Using heuristic fallback.")
+                return
             logger.info(f"[Arc] Loading zero-shot classifier: {self.model_name}")
             self.classifier = pipeline("zero-shot-classification", model=self.model_name)
 
