@@ -24,16 +24,19 @@ load_dotenv()
 
 logger = logging.getLogger("nolan.comic.pipeline")
 
-# ─── OpenRouter client (scene structuring LLM calls) ─────────────────────────
-# Fixed: added required HTTP-Referer + X-Title headers for OpenRouter auth.
-client = AsyncOpenAI(
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-    base_url="https://openrouter.ai/api/v1",
-    default_headers={
-        "HTTP-Referer": "https://nolan-editor.com",
-        "X-Title": "Nolan AI Studio",
-    },
-)
+# ─── OpenAI client (scene structuring LLM calls) ─────────────────────────────
+# Lazily resolved so importing this module never requires a key to be present.
+# The previous module-level AsyncOpenAI() raised at import time on a missing
+# key, taking the whole comic router down instead of just the one endpoint.
+class _LazyClient:
+    """Defers AsyncOpenAI construction to first attribute access."""
+
+    def __getattr__(self, name):
+        from services.llm.client import get_async_openai
+        return getattr(get_async_openai(), name)
+
+
+client = _LazyClient()
 
 # ─── Local storage for comic panels ──────────────────────────────────────────
 BASE_DIR  = Path(__file__).parent.parent.parent.parent
@@ -82,7 +85,8 @@ Return a JSON object strictly matching this format:
 }
 """
     try:
-        model = os.getenv("LLM_MODEL", "openai/gpt-4o-mini")
+        from services.llm.client import resolve_model
+        model = resolve_model()
         response = await client.chat.completions.create(
             model=model,
             response_format={"type": "json_object"},

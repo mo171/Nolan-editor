@@ -37,7 +37,13 @@ logger = logging.getLogger("nolan.images.visual_director")
 IMAGE_MODEL   = os.getenv("IMAGE_MODEL",   "dall-e-3")
 IMAGE_QUALITY = os.getenv("IMAGE_QUALITY", "standard")   # dall-e-3: standard | hd
 IMAGE_SIZE    = os.getenv("IMAGE_SIZE",    "1024x1024")
-LLM_MODEL     = os.getenv("LLM_MODEL",     "openai/gpt-4o-mini")
+
+
+# Resolved lazily via services.llm.client so the OpenRouter-style "openai/"
+# prefix in an existing .env is stripped before it reaches api.openai.com.
+def _llm_model() -> str:
+    from services.llm.client import resolve_model
+    return resolve_model()
 
 
 # ─── Client singletons ────────────────────────────────────────────────────────
@@ -47,34 +53,20 @@ _llm_client:   AsyncOpenAI | None = None
 
 
 def _get_image_client() -> AsyncOpenAI:
-    """Direct OpenAI client for GPT Image — NOT through OpenRouter."""
+    """Dedicated OpenAI client for GPT Image / DALL-E."""
     global _image_client
     if _image_client is None:
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "[VisualDirector] OPENAI_API_KEY is not set. "
-                "GPT Image requires a direct OpenAI key, not OpenRouter."
-            )
-        _image_client = AsyncOpenAI(api_key=api_key)
+        from services.llm.client import get_api_key
+        _image_client = AsyncOpenAI(api_key=get_api_key())
     return _image_client
 
 
 def _get_llm_client() -> AsyncOpenAI:
-    """OpenRouter client for LLM scene-parsing calls."""
+    """OpenAI client for LLM scene-parsing calls."""
     global _llm_client
     if _llm_client is None:
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            raise ValueError("[VisualDirector] OPENROUTER_API_KEY is not set.")
-        _llm_client = AsyncOpenAI(
-            api_key=api_key,
-            base_url="https://openrouter.ai/api/v1",
-            default_headers={
-                "HTTP-Referer": "https://nolan-editor.com",
-                "X-Title": "Nolan AI Studio",
-            },
-        )
+        from services.llm.client import get_async_openai
+        _llm_client = get_async_openai()
     return _llm_client
 
 
@@ -198,7 +190,7 @@ async def extract_scene_understanding(scene_text: str) -> dict:
     try:
         llm = _get_llm_client()
         resp = await llm.chat.completions.create(
-            model=LLM_MODEL,
+            model=_llm_model(),
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _SCENE_PARSER_PROMPT},
@@ -322,7 +314,7 @@ async def build_cinematic_prompt(
         llm = _get_llm_client()
         user_msg = json.dumps(scene_ctx, indent=2, ensure_ascii=False)
         resp = await llm.chat.completions.create(
-            model=LLM_MODEL,
+            model=_llm_model(),
             messages=[
                 {"role": "system", "content": _VISUAL_DIRECTOR_PROMPT},
                 {"role": "user",   "content": f"Generate the image prompt:\n{user_msg}"},

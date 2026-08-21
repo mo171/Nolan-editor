@@ -123,7 +123,10 @@ export function TiptapEditor({ onEditorReady }) {
       
       // Ghostwriter Logic: Start Zen timer on inactivity
       if (ghostTimerRef.current) clearTimeout(ghostTimerRef.current);
-      if (activeMode === "Creative" && ghostTextEnabled) {
+      // The Ghost Text toggle in the topbar is the single source of truth.
+      // This also required activeMode === "Creative", so enabling the toggle
+      // in Thinking/Planning mode silently did nothing and gave no feedback.
+      if (ghostTextEnabled) {
         ghostTimerRef.current = setTimeout(() => {
           // Send last ~30 words to context
           const text = editor.getText();
@@ -135,7 +138,7 @@ export function TiptapEditor({ onEditorReady }) {
         }, 3500); // 3.5s inactivity
       }
     },
-    [activeScene?.id, updateSceneContent, activeMode, requestGhost, clearGhost, ghostTextEnabled]
+    [activeScene?.id, updateSceneContent, requestGhost, clearGhost, ghostTextEnabled]
   );
   
   const handleSelectionUpdate = useCallback(({ editor }) => {

@@ -113,21 +113,27 @@ Author's question:
 
 # ─── LLM factory ─────────────────────────────────────────────────────────────
 
-def _get_llm(temperature: float = 0.5):
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    model = os.getenv("LLM_MODEL", "openai/gpt-4o-mini")
-    if not api_key:
-        raise ValueError("OPENROUTER_API_KEY is not set.")
+# Output ceilings per call type. These are NOT cosmetic: OpenRouter reserves
+# (and credit-checks against) max_tokens up front, so leaving it unset made every
+# request reserve the model's full 16384-token output window. Ghost text — which
+# the system prompt pins to "EXACTLY 1-2 sentences" — was being billed as if it
+# might return a novella, and returned HTTP 402 once the balance fell below that
+# reservation. Sizing each ceiling to what the prompt actually asks for keeps the
+# reservation honest and makes the first token arrive sooner.
+GHOST_MAX_TOKENS = 96    # 1-2 sentences of prose, with headroom
+CHAT_MAX_TOKENS  = 800   # conversational replies in the studio panel
+
+
+def _get_llm(temperature: float = 0.5, max_tokens: int = GHOST_MAX_TOKENS):
+    from services.llm.client import get_api_key, resolve_model
+    api_key = get_api_key()
+    model = resolve_model()
     return ChatOpenAI(
         model=model,
         temperature=temperature,
         streaming=True,
         api_key=api_key,
-        base_url="https://openrouter.ai/api/v1",
-        default_headers={
-            "HTTP-Referer": "https://nolan-editor.com", 
-            "X-Title": "Nolan AI Studio",
-        }
+        max_tokens=max_tokens,
     )
 
 
@@ -142,7 +148,7 @@ async def stream_ghost_text(
     Lower temperature (0.5) = tighter, more grounded, less hallucinatory output.
     """
     try:
-        llm = _get_llm(temperature=temperature)
+        llm = _get_llm(temperature=temperature, max_tokens=GHOST_MAX_TOKENS)
         prompt = ChatPromptTemplate.from_messages([
             ("system", GHOST_SYSTEM_PROMPT),
             ("human",  GHOST_HUMAN_PROMPT),
@@ -151,8 +157,12 @@ async def stream_ghost_text(
         async for chunk in chain.astream(prompt_vars):
             yield chunk
     except Exception as e:
-        logger.error(f"[Chain] Ghost text stream failed: {e}")
-        yield f" [Error generating text: {e}]"
+        # Do NOT yield the error text. Anything yielded here is streamed to the
+        # editor as ghost text and can be accepted straight into the user's
+        # manuscript. Re-raise so the WS layer pushes a typed `error` message
+        # and the editor clears the ghost decoration instead.
+        logger.error(f"[Chain] Ghost text stream failed: {e}", exc_info=True)
+        raise
 
 
 # ─── Chat stream ──────────────────────────────────────────────────────────────
@@ -163,7 +173,7 @@ async def stream_chat_response(
 ) -> AsyncGenerator[str, None]:
     """Streams the chatbot response."""
     try:
-        llm = _get_llm(temperature=temperature)
+        llm = _get_llm(temperature=temperature, max_tokens=CHAT_MAX_TOKENS)
         prompt = ChatPromptTemplate.from_messages([
             ("system", CHAT_SYSTEM_PROMPT),
             ("human",  CHAT_HUMAN_PROMPT),
@@ -172,5 +182,6 @@ async def stream_chat_response(
         async for chunk in chain.astream(prompt_vars):
             yield chunk
     except Exception as e:
-        logger.error(f"[Chain] Chat stream failed: {e}")
-        yield f" [Error: {e}]"
+        # Same rule as ghost text — surface the failure, never emit it as content.
+        logger.error(f"[Chain] Chat stream failed: {e}", exc_info=True)
+        raise

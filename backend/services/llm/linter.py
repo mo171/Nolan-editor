@@ -14,27 +14,14 @@ logger = logging.getLogger("nolan.llm.linter")
 
 # ─── Module-level singleton client ───────────────────────────────────────────
 # Created once at import time rather than on every lint request.
-# OpenRouter requires HTTP-Referer + X-Title — without them it returns 401
-# even when a valid OPENROUTER_API_KEY is present.
+# Shares the process-wide OpenAI client; see services/llm/client.py.
 _linter_client: AsyncOpenAI | None = None
 
 def _get_linter_client() -> AsyncOpenAI:
     global _linter_client
     if _linter_client is None:
-        api_key = os.environ.get("OPENROUTER_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "[Linter] OPENROUTER_API_KEY is not set. "
-                "Add it to backend/.env and restart the server."
-            )
-        _linter_client = AsyncOpenAI(
-            api_key=api_key,
-            base_url="https://openrouter.ai/api/v1",
-            default_headers={
-                "HTTP-Referer": "https://nolan-editor.com",
-                "X-Title": "Nolan AI Studio",
-            },
-        )
+        from services.llm.client import get_async_openai
+        _linter_client = get_async_openai()
     return _linter_client
 
 
@@ -57,7 +44,8 @@ async def run_linting_pipeline(text: str, project_id: str) -> list:
         graph_context = await get_linter_context(project_id, character_names)
 
     client = _get_linter_client()
-    model = os.getenv("LLM_MODEL", "openai/gpt-4o-mini")
+    from services.llm.client import resolve_model
+    model = resolve_model()
 
     system_prompt = f"""You are Nolan, an elite AI editor. 
 Analyze the provided text snippet and return exactly 1 JSON object with a single root key 'suggestions' which is a list of objects.

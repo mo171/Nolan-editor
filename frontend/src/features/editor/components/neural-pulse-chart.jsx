@@ -21,6 +21,20 @@ const KPI_CONFIG = {
 };
 
 export function NeuralPulseChart({ data, comparisonData, activeKpi = "arousal" }) {
+  // Hooks must run before any early return. Previously this useMemo sat below
+  // the "No Neural Data" guard, so the hook count changed the moment stats
+  // arrived (empty -> populated) and React threw "rendered more hooks than
+  // during the previous render", taking the whole dashboard down.
+  const chartData = React.useMemo(() => {
+    if (!data || data.length === 0) return [];
+    if (!comparisonData) return data;
+    // Map current data and attach comparison values at matching 't'
+    return data.map((d, i) => ({
+      ...d,
+      cv: comparisonData[i]?.v || 0
+    }));
+  }, [data, comparisonData]);
+
   if (!data || data.length === 0) {
     return (
       <div className="h-32 flex items-center justify-center border border-dashed border-white/10 rounded-xl bg-white/2">
@@ -29,17 +43,8 @@ export function NeuralPulseChart({ data, comparisonData, activeKpi = "arousal" }
     );
   }
 
-  const config = KPI_CONFIG[activeKpi];
-
-  // Merge data for comparison if needed
-  const chartData = React.useMemo(() => {
-    if (!comparisonData) return data;
-    // Map current data and attach comparison values at matching 't'
-    return data.map((d, i) => ({
-      ...d,
-      cv: comparisonData[i]?.v || 0
-    }));
-  }, [data, comparisonData]);
+  // Fall back to arousal styling rather than crashing on an unmapped KPI key.
+  const config = KPI_CONFIG[activeKpi] || KPI_CONFIG.arousal;
 
   return (
     <div className="h-64 w-full">

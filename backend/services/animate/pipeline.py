@@ -39,23 +39,19 @@ def _ensure_dirs():
     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     COMIC_DIR.mkdir(parents=True, exist_ok=True)
 
-# ─── OpenRouter client (for script extraction LLM) ────────────────────────────
+# ─── OpenAI client (for script extraction LLM) ────────────────────────────────
 _llm_client: AsyncOpenAI | None = None
+
+
+def _resolve_model() -> str:
+    from services.llm.client import resolve_model
+    return resolve_model()
 
 def _get_llm_client() -> AsyncOpenAI:
     global _llm_client
     if _llm_client is None:
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            raise ValueError("[AnimatePipeline] OPENROUTER_API_KEY not set")
-        _llm_client = AsyncOpenAI(
-            api_key=api_key,
-            base_url="https://openrouter.ai/api/v1",
-            default_headers={
-                "HTTP-Referer": "https://nolan-editor.com",
-                "X-Title":      "Nolan AI Studio",
-            },
-        )
+        from services.llm.client import get_async_openai
+        _llm_client = get_async_openai()
     return _llm_client
 
 # ─── Script Extractor ─────────────────────────────────────────────────────────
@@ -96,7 +92,7 @@ async def extract_scene_script(scene_text: str) -> List[Dict]:
     try:
         llm = _get_llm_client()
         resp = await llm.chat.completions.create(
-            model=os.getenv("LLM_MODEL", "openai/gpt-4o-mini"),
+            model=_resolve_model(),
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _SCRIPT_PROMPT},
@@ -145,7 +141,7 @@ class AnimatePipeline:
 
             llm = _get_llm_client()
             resp = await llm.chat.completions.create(
-                model=os.getenv("LLM_MODEL", "openai/gpt-4o-mini"),
+                model=_resolve_model(),
                 response_format={"type": "json_object"},
                 messages=[
                     {

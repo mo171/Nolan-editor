@@ -45,6 +45,8 @@ export function useGhostText(projectId, { onToken, onAnalysisReady } = {}) {
         // Backend silently skipped — not enough text yet. Clear spinner quietly.
         setIsStreaming(false);
         ghostBufferRef.current = "";
+        // Push the empty buffer down so the editor drops any stale decoration.
+        if (onToken) onToken("");
         break;
       }
 
@@ -60,6 +62,10 @@ export function useGhostText(projectId, { onToken, onAnalysisReady } = {}) {
         console.error("[GhostText] Backend error:", msg.message);
         setIsStreaming(false);
         ghostBufferRef.current = "";
+        // A stream that dies mid-flight has already painted partial tokens into
+        // the editor. Clearing only the ref would leave that half-sentence
+        // stranded on screen until the next keystroke.
+        if (onToken) onToken("");
         break;
       }
 

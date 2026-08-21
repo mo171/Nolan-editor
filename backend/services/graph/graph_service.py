@@ -268,14 +268,21 @@ async def get_visual_graph(project_id: str) -> Dict[str, Any]:
                 data = dict(record["data"])
                 neo_id = record["neo_id"]
                 
-                node_id = data.get("id") or data.get("name")
-                neo_to_id[neo_id] = str(node_id)
+                label = labels[0] if labels else "Default"
+                raw_name = data.get("name")
+                # Scene nodes carry a real `id`; Character/Location nodes are keyed
+                # only by name. NER sometimes tags one string as both (e.g. "Nala"
+                # as Character AND Location), which emitted two nodes sharing an id
+                # and tripped React Flow's duplicate-key warning. Namespacing by
+                # label keeps ids unique across labels.
+                node_id = str(data.get("id") or f"{label}:{raw_name}")
+                neo_to_id[neo_id] = node_id
                 
                 nodes.append({
-                    "id": str(node_id),
-                    "type": labels[0] if labels else "Default",
+                    "id": node_id,
+                    "type": label,
                     "data": {
-                        "label": data.get("title") or data.get("name") or node_id,
+                        "label": data.get("title") or raw_name or node_id,
                         **data
                     },
                     "position": {"x": 0, "y": 0} 
@@ -299,14 +306,17 @@ async def get_visual_graph(project_id: str) -> Dict[str, Any]:
                         metadata_map[c["name"]].update({k: v for k, v in c.items() if v})
 
                 # Ensure ALL characters from Supabase are in the nodes list
-                existing_node_ids = {n["id"] for n in nodes if n["type"] == "Character"}
+                existing_char_names = {
+                    n["data"].get("name") for n in nodes if n["type"] == "Character"
+                }
                 for name, meta in metadata_map.items():
-                    if name not in existing_node_ids:
+                    if name not in existing_char_names:
                         nodes.append({
-                            "id": name,
+                            "id": f"Character:{name}",
                             "type": "Character",
                             "data": {
                                 "label": name,
+                                "name": name,
                                 "role": meta.get("role"),
                                 "description": meta.get("description"),
                                 "traits": meta.get("traits"),
@@ -317,8 +327,11 @@ async def get_visual_graph(project_id: str) -> Dict[str, Any]:
                 
                 # Update existing nodes with Supabase metadata (images, descriptions)
                 for node in nodes:
-                    if node["type"] == "Character" and node["id"] in metadata_map:
-                        node["data"].update(metadata_map[node["id"]])
+                    if node["type"] != "Character":
+                        continue
+                    node_name = node["data"].get("name")
+                    if node_name in metadata_map:
+                        node["data"].update(metadata_map[node_name])
 
             except Exception as e:
                 logger.warning(f"[Graph] Supabase enrichment failed: {e}")

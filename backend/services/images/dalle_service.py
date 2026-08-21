@@ -7,7 +7,7 @@ Replaces the former Stability AI implementation.
 Flow:
   1. Fetch character data from Supabase (caller provides it)
   2. Build scene text: a "portrait scene" of just this character
-  3. Generate visual summary (via OpenRouter LLM) for the sidebar card
+  3. Generate visual summary (via OpenAI LLM) for the sidebar card
   4. Generate portrait image via Visual Director → GPT Image
   5. Save locally → update Supabase (both project_characters + characters)
 """
@@ -25,23 +25,14 @@ load_dotenv()
 
 logger = logging.getLogger("nolan.images.portrait")
 
-# ─── OpenRouter client (for visual summary text generation) ──────────────────
+# ─── OpenAI client (for visual summary text generation) ──────────────────────
 _summary_client: AsyncOpenAI | None = None
 
 def _get_summary_client() -> AsyncOpenAI:
     global _summary_client
     if _summary_client is None:
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            raise ValueError("[Portrait] OPENROUTER_API_KEY is not set.")
-        _summary_client = AsyncOpenAI(
-            api_key=api_key,
-            base_url="https://openrouter.ai/api/v1",
-            default_headers={
-                "HTTP-Referer": "https://nolan-editor.com",
-                "X-Title": "Nolan AI Studio",
-            },
-        )
+        from services.llm.client import get_async_openai
+        _summary_client = get_async_openai()
     return _summary_client
 
 # ─── Local file storage ───────────────────────────────────────────────────────
@@ -79,7 +70,8 @@ async def _generate_visual_summary(
         if traits:
             parts.append(f"Traits: {', '.join(traits)}")
 
-        model = os.getenv("LLM_MODEL", "openai/gpt-4o-mini")
+        from services.llm.client import resolve_model
+        model = resolve_model()
         resp = await _get_summary_client().chat.completions.create(
             model=model,
             messages=[

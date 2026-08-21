@@ -176,6 +176,10 @@ async def create_project(payload: ProjectCreate):
                 "position": 0,
             }).execute()
 
+        # The dashboard list is cached for 5 min under user_projects:{user_id}.
+        # Without this the user creates a project and it does not appear.
+        await cache.invalidate_user_projects(payload.user_id)
+
         logger.info(f"[Projects] Created project={project_id} title='{payload.title}'")
         return project
 
@@ -235,6 +239,11 @@ async def update_project(project_id: str, payload: ProjectUpdate):
 
         # Invalidate cache
         await cache.invalidate_project_meta(project_id)
+
+        # title/genre/premise are all projected into the dashboard list cache.
+        user_id = result.data[0].get("user_id")
+        if user_id:
+            await cache.invalidate_user_projects(user_id)
 
         return result.data[0]
 

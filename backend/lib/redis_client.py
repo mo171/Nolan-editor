@@ -8,6 +8,7 @@ Strategy:
 
 Cache Keys:
   project:{id}:meta          → project metadata         TTL: 5 min
+  project:{id}:prompt_setup  → ghost-prompt projection   TTL: 5 min
   project:{id}:dna           → DNA fingerprint          TTL: 30 min (rarely changes)
   project:{id}:characters    → all character cards list TTL: 2 min
   character:{pid}:{name}     → single character card    TTL: 2 min
@@ -102,6 +103,10 @@ class RedisCache:
 
     async def invalidate_project_meta(self, project_id: str):
         await self.delete(f"project:{project_id}:meta")
+        # The ghost-text prompt reads a slimmer projection of the same row
+        # (see routers/ws.py::_load_project_setup). Both must die together or
+        # the LLM keeps writing against the pre-edit genre/tone/premise.
+        await self.delete(f"project:{project_id}:prompt_setup")
 
     async def get_dna(self, project_id: str) -> dict | None:
         return await self.get_json(f"project:{project_id}:dna")

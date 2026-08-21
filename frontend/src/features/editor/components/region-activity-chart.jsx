@@ -12,25 +12,42 @@ import {
   Cell
 } from "recharts";
 
+// Each region is scored from the KPI series it actually drives. The mapping
+// mirrors backend/services/analytics/roi_definitions.py::get_kpi_mapping():
+//   arousal  = insula (cortical) + amygdala (subcortical)
+//   visual   = occipital
+//   semantic = prefrontal
+//   reward   = ventral_striatum
 const REGIONS = [
-  { name: "Amygdala", full: "Emotional Intensity", color: "#ba9eff" },
-  { name: "Ventral Striatum", full: "Novelty/Reward", color: "#f472b6" },
-  { name: "Occipital", full: "Visual Vividness", color: "#69daff" },
-  { name: "Prefrontal", full: "Structural Logic", color: "#a3e635" },
-  { name: "Insula", full: "Empathy/Physiological", color: "#fbbf24" }
+  { name: "Amygdala", full: "Emotional Intensity", color: "#ba9eff", kpi: "arousal" },
+  { name: "Ventral Striatum", full: "Novelty/Reward", color: "#f472b6", kpi: "reward" },
+  { name: "Occipital", full: "Visual Vividness", color: "#69daff", kpi: "visual" },
+  { name: "Prefrontal", full: "Structural Logic", color: "#a3e635", kpi: "semantic" },
+  { name: "Insula", full: "Empathy/Physiological", color: "#fbbf24", kpi: "arousal" }
 ];
+
+/** Mean of a `[{ t, v }]` KPI series, expressed as a 0-100 activation score. */
+function activationScore(stats, kpi) {
+  const series = stats?.[`${kpi}_data`];
+  if (!Array.isArray(series) || series.length === 0) return 0;
+  const total = series.reduce((acc, point) => acc + (Number(point?.v) || 0), 0);
+  // Series values are 0-1 predictions; clamp because the simulated generator
+  // adds gaussian noise that can push a sample slightly outside the range.
+  return Math.max(0, Math.min(100, Math.round((total / series.length) * 100)));
+}
 
 export function RegionActivityChart({ stats, comparisonStats }) {
   const data = React.useMemo(() => {
     if (!stats) return [];
-    
-    // Simulate region-specific activation based on global scores
-    const getVal = (s) => !s ? 0 : Math.round(Math.random() * 20 + 50);
 
+    // Derived from the real per-timestep predictions returned by
+    // /api/analytics/scene/{id}. This previously returned Math.random(), which
+    // both rendered impure output during render and presented invented numbers
+    // as neural analysis.
     return REGIONS.map(r => ({
       name: r.name,
-      value: getVal(stats),
-      compareValue: getVal(comparisonStats),
+      value: activationScore(stats, r.kpi),
+      compareValue: activationScore(comparisonStats, r.kpi),
       color: r.color
     }));
   }, [stats, comparisonStats]);

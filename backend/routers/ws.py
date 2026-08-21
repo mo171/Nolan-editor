@@ -49,6 +49,107 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
         manager.disconnect(project_id, websocket)
 
 
+# ─── Context loaders (cache-first, DB-backed) ────────────────────────────────
+# Ghost text quality depends entirely on these three blobs. Reading them from
+# Redis alone means a cold cache (fresh boot, expired TTL, Redis down) produces
+# a prompt with no genre, no premise, no characters and no style — the model
+# then invents its own world. Each loader falls back to Supabase and re-warms
+# the cache so only the first request after a cache miss pays the DB round-trip.
+
+# Columns the ghost prompt actually consumes (see prompt_builder.build_ghost_prompt_vars)
+_PROMPT_COLUMNS = (
+    "id, title, genre, premise, desired_ending, themes, llm_temperature, "
+    "tone, target_audience, setting_description, story_foundation, "
+    "conflict_types, tension_tags, inciting_incident"
+)
+
+# Dedicated key — deliberately NOT project:{id}:meta, because that key holds the
+# full project+chapters payload served by GET /api/projects/{id}. Writing a
+# partial row there would corrupt the editor's hydration response.
+_PROMPT_SETUP_TTL = 300  # 5 min, matches TTL_PROJECT_META
+
+
+async def _load_project_setup(project_id: str) -> dict:
+    """Project boilerplate for the prompt. Cache → DB → warm cache."""
+    from lib.redis_client import cache
+
+    # The full meta blob is a superset of what we need — use it when it's hot.
+    meta = await cache.get_project_meta(project_id)
+    if meta:
+        return meta
+
+    setup = await cache.get_json(f"project:{project_id}:prompt_setup")
+    if setup:
+        return setup
+
+    try:
+        from lib.supabase import supabase
+        res = supabase.table("projects").select(_PROMPT_COLUMNS).eq(
+            "id", project_id
+        ).single().execute()
+        setup = res.data or {}
+    except Exception as e:
+        logger.error(f"[WS] Project setup DB fallback failed project={project_id}: {e}")
+        return {}
+
+    if setup:
+        await cache.set_json(
+            f"project:{project_id}:prompt_setup", setup, _PROMPT_SETUP_TTL
+        )
+        logger.info(f"[WS] Project setup loaded from DB (cache was cold) project={project_id}")
+    return setup
+
+
+async def _load_dna(project_id: str) -> dict:
+    """Style DNA fingerprint. Cache → DB → warm cache."""
+    from lib.redis_client import cache
+
+    dna = await cache.get_dna(project_id)
+    if dna:
+        return dna
+
+    try:
+        from lib.supabase import supabase
+        res = supabase.table("projects").select("dna_fingerprint").eq(
+            "id", project_id
+        ).single().execute()
+        dna = (res.data or {}).get("dna_fingerprint") or {}
+    except Exception as e:
+        logger.error(f"[WS] DNA DB fallback failed project={project_id}: {e}")
+        return {}
+
+    if dna:
+        await cache.set_dna(project_id, dna)
+    return dna
+
+
+async def _load_scene_analysis(scene_id: str) -> dict:
+    """Latest NLP/BERT analysis for the scene. Cache → DB → warm cache."""
+    from lib.redis_client import cache
+
+    if not scene_id:
+        return {}
+
+    analysis = await cache.get_scene_analysis(scene_id)
+    if analysis:
+        return analysis
+
+    try:
+        from lib.supabase import supabase
+        res = supabase.table("scene_nlp_analysis").select("*").eq(
+            "scene_id", scene_id
+        ).limit(1).execute()
+        rows = res.data or []
+        analysis = rows[0] if rows else {}
+    except Exception as e:
+        logger.error(f"[WS] Scene analysis DB fallback failed scene={scene_id}: {e}")
+        return {}
+
+    if analysis:
+        await cache.set_scene_analysis(scene_id, analysis)
+    return analysis
+
+
 # ─── Handlers (stubs — filled in Phase 5) ────────────────────────────────────
 
 async def _handle_ghost_request(websocket: WebSocket, project_id: str, data: dict):
@@ -80,11 +181,14 @@ async def _handle_ghost_request(websocket: WebSocket, project_id: str, data: dic
         logger.error(f"[WS] RAG retrieval failed: {e}")
         narrative_chunks, dna_chunks = [], []
 
-    # ── 2. Get Project Meta (cached) ────────────────────────────────────────
-    from lib.redis_client import cache
-    project_setup  = await cache.get_project_meta(project_id) or {}
-    dna_fingerprint = await cache.get_dna(project_id) or {}
-    scene_analysis  = await cache.get_scene_analysis(scene_id) or {}
+    # ── 2. Get Project Meta (cache → DB fallback) ───────────────────────────
+    # A cold or unavailable Redis must NEVER silently strip the prompt of its
+    # world facts. Without these, prompt_builder falls back to "Literary
+    # Fiction" / "Not specified" and the model writes ungrounded prose that
+    # ignores the user's genre, tone, premise, themes and temperature.
+    project_setup   = await _load_project_setup(project_id)
+    dna_fingerprint = await _load_dna(project_id)
+    scene_analysis  = await _load_scene_analysis(scene_id)
 
     scene_emotion = scene_analysis.get("dominant_emotion", "neutral")
     # Use project's stored temperature, default to 0.5 (tighter outputs)

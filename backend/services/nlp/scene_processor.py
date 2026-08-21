@@ -116,8 +116,12 @@ async def run_scene_nlp(scene_id: str, project_id: str) -> dict:
     }
 
     # ── Step 6: METADATA UPDATE ─────────────────────────────────────────────
+    # PUT /scenes/{id}/content resets BOTH flags to False on every save, so both
+    # must be set back to True here. bert_processed was previously never
+    # restored, leaving every scene permanently flagged as BERT-pending.
     supabase.table("scenes").update({
         "nlp_processed": True,
+        "bert_processed": True,
         "last_processed_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", scene_id).execute()
 
@@ -161,7 +165,7 @@ async def run_scene_nlp(scene_id: str, project_id: str) -> dict:
                 if arc_res and arc_res.get("arc_change_detected"):
                     arc_warnings.append(arc_res)
 
-                res = supabase.table("characters").insert({
+                supabase.table("characters").insert({
                     "project_id": project_id,
                     "name": char_name,
                     "first_seen_scene_id": scene_id,
@@ -181,6 +185,9 @@ async def run_scene_nlp(scene_id: str, project_id: str) -> dict:
     supabase.table("scene_nlp_analysis").upsert(analysis_row, on_conflict="scene_id").execute()
     await cache.set_scene_analysis(scene_id, analysis_row)
     await cache.invalidate_characters(project_id)
+    # project:{id}:meta embeds every scene's content/plain_text/word_count, so it
+    # is stale the moment a scene is re-processed.
+    await cache.invalidate_project_meta(project_id)
 
     # ── Step 8: GRAPH UPSERT ───────────────────────────────────────────────
     from services.graph.graph_service import update_graph

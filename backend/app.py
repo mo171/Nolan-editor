@@ -182,6 +182,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",  # Next.js dev
+        "http://127.0.0.1:3000",
+        "http://192.168.29.224:3000",
         "http://localhost:3001",
         # Add your production domain here later
     ],

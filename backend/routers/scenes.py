@@ -25,6 +25,41 @@ router = APIRouter(prefix="/api/scenes", tags=["scenes"])
 logger = logging.getLogger("nolan.scenes")
 
 
+# ─── Cache helpers ───────────────────────────────────────────────────────────
+# GET /api/projects/{id} caches the project row WITH its nested chapters+scenes
+# (title, position, word_count, content, plain_text). Every scene mutation
+# therefore invalidates that blob — otherwise the editor rehydrates from a
+# stale snapshot for up to 5 minutes and resurrects deleted/renamed scenes.
+
+async def _project_id_for_chapter(chapter_id: str) -> Optional[str]:
+    try:
+        res = supabase.table("chapters").select("project_id").eq(
+            "id", chapter_id
+        ).single().execute()
+        return (res.data or {}).get("project_id")
+    except Exception as e:
+        logger.warning(f"[Scenes] Could not resolve project for chapter={chapter_id}: {e}")
+        return None
+
+
+async def _project_id_for_scene(scene_id: str) -> Optional[str]:
+    try:
+        res = supabase.table("scenes").select("chapter_id").eq(
+            "id", scene_id
+        ).single().execute()
+        chapter_id = (res.data or {}).get("chapter_id")
+        return await _project_id_for_chapter(chapter_id) if chapter_id else None
+    except Exception as e:
+        logger.warning(f"[Scenes] Could not resolve project for scene={scene_id}: {e}")
+        return None
+
+
+async def _invalidate_project_meta_for_scene(scene_id: str):
+    project_id = await _project_id_for_scene(scene_id)
+    if project_id:
+        await cache.invalidate_project_meta(project_id)
+
+
 # ─── Schemas ─────────────────────────────────────────────────────────────────
 
 class SceneCreate(BaseModel):
@@ -74,6 +109,10 @@ async def create_scene(payload: SceneCreate):
 
         if not result.data:
             raise HTTPException(status_code=500, detail="Failed to create scene")
+
+        project_id = await _project_id_for_chapter(payload.chapter_id)
+        if project_id:
+            await cache.invalidate_project_meta(project_id)
 
         logger.info(f"[Scenes] Created scene={result.data[0]['id']}")
         return result.data[0]
@@ -132,6 +171,8 @@ async def save_scene_content(scene_id: str, payload: SceneContentUpdate):
 
         # Invalidate stale NLP cache for this scene
         await cache.invalidate_scene(scene_id)
+        # content/plain_text/word_count are embedded in the project meta blob
+        await cache.invalidate_project_meta(payload.project_id)
 
         # 🔥 Fire NLP pipeline — does NOT block the response
         # Debounce: only trigger the massive pipeline if we have over 5 words
@@ -142,7 +183,7 @@ async def save_scene_content(scene_id: str, payload: SceneContentUpdate):
                 task_name=f"nlp_scene_{scene_id}"
             )
         else:
-            logger.info(f"[Scenes] Skipped NLP for scene={scene_id} — word_count ({word_count}) < 50")
+            logger.info(f"[Scenes] Skipped NLP for scene={scene_id} — word_count ({word_count}) <= 5")
 
         logger.info(f"[Scenes] Saved scene={scene_id} words={word_count}, NLP queued")
 
@@ -150,7 +191,7 @@ async def save_scene_content(scene_id: str, payload: SceneContentUpdate):
             "scene_id": scene_id,
             "word_count": word_count,
             "status": "saved",
-            "nlp_status": "queued",
+            "nlp_status": "queued" if word_count > 5 else "skipped",
         }
 
     except HTTPException:
@@ -169,6 +210,8 @@ async def update_scene_title(scene_id: str, payload: SceneTitleUpdate):
 
         if not result.data:
             raise HTTPException(status_code=404, detail="Scene not found")
+
+        await _invalidate_project_meta_for_scene(scene_id)
 
         return result.data[0]
 
@@ -212,8 +255,12 @@ async def get_scene_analysis(scene_id: str):
 @router.delete("/{scene_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_scene(scene_id: str):
     try:
+        # Resolve the owning project BEFORE the row is gone — afterwards the
+        # scene → chapter → project lookup is no longer possible.
+        project_id = await _project_id_for_scene(scene_id)
+
         await cache.invalidate_scene(scene_id)
-        
+
         # Safety: Nullify character references to this specific scene
         supabase.table("characters")\
             .update({"first_seen_scene_id": None})\
@@ -221,6 +268,10 @@ async def delete_scene(scene_id: str):
             .execute()
             
         supabase.table("scenes").delete().eq("id", scene_id).execute()
+
+        if project_id:
+            await cache.invalidate_project_meta(project_id)
+
         logger.info(f"[Scenes] Deleted scene={scene_id}")
     except Exception as e:
         logger.error(f"[Scenes] Delete error: {e}", exc_info=True)

@@ -18,7 +18,8 @@ export default function ComicWorkflow({ projectId, projectData, currentStep, set
       const executePipeline = async () => {
         setIsGenerating(true);
         try {
-          const res = await fetch(`http://localhost:8000/projects/${projectId}/comics/generate`, {
+          const { API_URL } = await import("@/lib/api");
+          const res = await fetch(`${API_URL}/projects/${projectId}/comics/generate`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
